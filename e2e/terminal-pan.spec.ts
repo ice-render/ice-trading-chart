@@ -46,19 +46,26 @@ async function snapshot(page: Page) {
   });
 }
 
-/** 绘图区里「系列颜色」的像素数（饱和彩色 = 涨跌色 / 均线色；网格与轴字是灰蓝，不算）。 */
+/**
+ * 绘图区里「系列颜色」的像素数（饱和彩色 = 涨跌色 / 均线色）。
+ *
+ * ⚠️ 按**绘图区矩形**扫，不按画布内缩一个固定像素数 —— 后者会把右侧的价格缩放进去，
+ * 轴标签的颜色一变（这套盘面改过配色）就会把「空白区」判成有内容（实测踩到）。
+ */
 async function seriesInk(page: Page) {
   return page.evaluate(() => {
     const pg = (window as any).__page;
     const dpr = pg.dpr || 1;
     const out: Record<string, number> = {};
     for (const id of ['price', 'volume', 'indicator']) {
-      const canvas = pg.stack.chartOf(id).ice.canvasEl;
+      const chart = pg.stack.chartOf(id);
+      const canvas = chart.ice.canvasEl;
       const ctx = canvas.getContext('2d');
-      const x0 = Math.round(12 * dpr);
-      const y0 = Math.round(8 * dpr);
-      const w = Math.max(1, Math.round(canvas.width - 32 * dpr));
-      const h = Math.max(1, Math.round(canvas.height - 16 * dpr));
+      const plot = chart.layout.plot;
+      const x0 = Math.round((plot.x + 1) * dpr);
+      const y0 = Math.round((plot.y + 1) * dpr);
+      const w = Math.max(1, Math.round((plot.width - 2) * dpr));
+      const h = Math.max(1, Math.round((plot.height - 2) * dpr));
       const data = ctx.getImageData(x0, y0, w, h).data;
       let ink = 0;
       for (let i = 0; i < data.length; i += 4) {
@@ -652,7 +659,7 @@ test.describe('K 线终端示例页', () => {
     const state = await tickState(page);
     // 标签都是「整数部分.两位小数」
     for (const label of state.labels) {
-      expect(label.trim(), `刻度 ${label}`).toMatch(/^\d+\.\d{2}$/);
+      expect(label.trim(), `刻度 ${label}`).toMatch(/^[\d,]+\.\d{2}%?$/);
     }
     expect(state.aligned, '标签变长也没把三块 pane 挤歪').toBe(true);
 
@@ -660,20 +667,20 @@ test.describe('K 线终端示例页', () => {
     await dragRulerUp(page, 'price', 140);
     const zoomed = await tickState(page);
     for (const label of zoomed.labels) {
-      expect(label.trim(), `缩放后刻度 ${label}`).toMatch(/^\d+\.\d{2}$/);
+      expect(label.trim(), `缩放后刻度 ${label}`).toMatch(/^[\d,]+\.\d{2}%?$/);
     }
     expect(zoomed.aligned).toBe(true);
 
     // 最新的价签是同一口径（页面自己画的那些也是两位小数）
     const tag = await page.evaluate(() => document.querySelector('.tag.last')!.textContent);
-    expect(tag).toMatch(/^\d+\.\d{2}$/);
+    expect(tag).toMatch(/^[\d,]+\.\d{2}$/);
 
     // 指针进绘图区：准星价签 + 抬头 OHLC 也走同一份格式化
     const center = await paneCenter(page);
     await page.mouse.move(center.x, center.y);
     await page.waitForTimeout(200);
-    expect(await page.evaluate(() => document.querySelector('.tag.price')!.textContent)).toMatch(/^\d+\.\d{2}$/);
-    expect(await page.evaluate(() => document.querySelector('.ohlc [data-k="close"]')!.textContent)).toMatch(/^\d+\.\d{2}$/);
+    expect(await page.evaluate(() => document.querySelector('.tag.price')!.textContent)).toMatch(/^[\d,]+\.\d{2}$/);
+    expect(await page.evaluate(() => document.querySelector('.ohlc [data-k="close"]')!.textContent)).toMatch(/^[\d,]+\.\d{2}$/);
   });
 
   test('背景是方格：垂直网格线跟时间标签同一批位置，三块 pane 对齐', async ({ page }) => {
@@ -790,7 +797,7 @@ test.describe('K 线终端示例页', () => {
       };
     });
     expect(state.ohlc).toContain('SYN/USDT');
-    expect(state.ohlc, '抬头有开高低收的数').toMatch(/开 \d+\.\d{2}/);
+    expect(state.ohlc, '抬头有开高低收的数').toMatch(/开 [\d,]+\.\d{2}/);
     // 图例由若干 span 拼成（间距走 CSS，文本里不带空格）
     expect(state.volumeParts[0]).toBe('Vol');
     expect(state.volumeParts[1]).toMatch(/^[\d.]+[KMB]?$/);
@@ -885,7 +892,7 @@ test.describe('K 线终端示例页', () => {
 
     const candle = await state();
     expect(candle.seriesTypes[0]).toBe('candlestick');
-    expect(candle.close).toMatch(/\d+\.\d{2}/);
+    expect(candle.close).toMatch(/[\d,]+\.\d{2}/);
 
     const pick = async (type: string) => {
       await page.click('.tb-menu[data-menu="type"] .tb-trigger');
@@ -901,7 +908,7 @@ test.describe('K 线终端示例页', () => {
     expect(line.yMin, '影线量程照旧（不是只用收盘价）').toBeLessThanOrEqual(candle.yMin + 1e-6);
     expect(line.yMax).toBeGreaterThanOrEqual(candle.yMax - 1e-6);
     expect(line.volumeSeries, '成交量副图照旧').toBe(candle.volumeSeries);
-    expect(line.close, '抬头照旧读得出开高低收').toMatch(/\d+\.\d{2}/);
+    expect(line.close, '抬头照旧读得出开高低收').toMatch(/[\d,]+\.\d{2}/);
 
     expect((await pick('area')).seriesTypes[0]).toBe('area');
     expect((await pick('hollow')).seriesTypes[0]).toBe('candlestick');
@@ -1029,23 +1036,36 @@ test.describe('K 线终端示例页', () => {
     });
     await page.mouse.move(at.x, at.y);
     await page.waitForTimeout(200);
-    const plain = await page.evaluate(() => document.querySelector('.tag.price')!.textContent);
 
     await page.click('.tb-menu[data-menu="display"] .tb-trigger');
     await page.click('#panel-display [data-display="magnet"]');
+    // 勾完先把面板收起来：它还开着的时候正好盖在图上，指针移动落不到画布上（实测踩到）
+    await page.keyboard.press('Escape');
     await page.mouse.move(at.x, at.y);
     await page.waitForTimeout(200);
     const snapped = await page.evaluate(() => document.querySelector('.tag.price')!.textContent);
     expect(await page.evaluate(() => (window as any).__page.magnet)).toBe(true);
-    expect(snapped).not.toBe(plain);
+    // 磁吸的契约：价签吸到的必须是**这一根**的开高低收之一
     const prices = await page.evaluate(() => {
       const pg = (window as any).__page;
       const reading = pg.readout.read();
-      return [reading.open, reading.high, reading.low, reading.close].map((value: number) => value.toFixed(2));
+      return [reading.open, reading.high, reading.low, reading.close].map((value: number) =>
+        ICETradingChart.formatPrice(value, 2)
+      );
     });
-    expect(prices, '磁吸到的必须是这一根的开高低收之一').toContain(snapped);
+    expect(prices).toContain(snapped);
+    // 而且横线画在吸附价上（不是指针的 y 上）
+    const snappedY = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const chart = pg.stack.chartOf('price');
+      const reading = pg.readout.read();
+      return ICETradingChart.priceToY(chart, Number(String(document.querySelector('.tag.price')!.textContent).replace(/,/g, '')), 0);
+    });
+    const tagTop = await page.evaluate(() => parseFloat((document.querySelector('.tag.price') as HTMLElement).style.top));
+    expect(Math.abs(tagTop + 9 - snappedY)).toBeLessThanOrEqual(1);
 
     // 三个开关都能关掉（面板在勾选时保持展开，跟指标那组一个套路）
+    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
     await page.click('#panel-display [data-display="volumeMa"]');
     await page.click('#panel-display [data-display="sessionLines"]');
     await page.waitForTimeout(300);

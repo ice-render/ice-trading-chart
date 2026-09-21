@@ -17,11 +17,22 @@ function trim(value: number, digits: number): string {
  *   提示框要的是「同一竖列对齐的报价」，`42300` 与 `42300.5` 混在一起反而难读；
  * - 不给：最多 6 位小数并去掉尾随 0（老口径，量级跨度大的场景仍然好用）。
  */
+/** 给整数部分加千分位（`42300.00` → `42,300.00`）。 */
+function groupThousands(text: string): string {
+  const negative = text.startsWith('-');
+  const body = negative ? text.slice(1) : text;
+  const [intPart, decPart] = body.split('.');
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const out = decPart ? `${grouped}.${decPart}` : grouped;
+  return negative ? `-${out}` : out;
+}
+
 export function formatPrice(value: number, precision?: number): string {
   if (!isFinite(value)) return '-';
   const digits = Number(precision);
   if (precision !== undefined && precision !== null && isFinite(digits)) {
-    return value.toFixed(Math.min(8, Math.max(0, Math.round(digits))));
+    // 固定小数位 + 千分位：主流看盘软件的报价口径（82,532.40 这样读起来才有位感）
+    return groupThousands(value.toFixed(Math.min(8, Math.max(0, Math.round(digits)))));
   }
   return trim(value, 6);
 }

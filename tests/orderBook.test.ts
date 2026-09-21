@@ -101,13 +101,41 @@ describe('createOrderBook（盘口组件）', () => {
     ]);
   });
 
-  it('换配色会改价格行颜色（下一次 update 生效）', () => {
-    book = createOrderBook(host, { levels: 1, upColor: '#ff0000', downColor: '#00ff00' });
+  it('两侧颜色：卖盘用跌色、买盘用涨色（合约盘面的口径）', () => {
+    book = createOrderBook(host, { levels: 1, upColor: '#0ecb81', downColor: '#f6465d' });
     book.update({ asks: [{ price: 101, size: 1 }], bids: [{ price: 99, size: 1 }] });
-    expect((rowsOf('ask')[0].querySelector('.ice-book-px') as HTMLElement).style.color).toBe('rgb(255, 0, 0)');
-    book.setPalette({ upColor: '#0000ff', downColor: '#ffff00' });
+    expect((rowsOf('ask')[0].querySelector('.ice-book-px') as HTMLElement).style.color).toBe('rgb(246, 70, 93)');
+    expect((rowsOf('bid')[0].querySelector('.ice-book-px') as HTMLElement).style.color).toBe('rgb(14, 203, 129)');
+
+    // 换配色（涨红跌绿）时两边跟着翻
+    book.setPalette({ upColor: '#f6465d', downColor: '#0ecb81' });
     book.update({ asks: [{ price: 101, size: 1 }], bids: [{ price: 99, size: 1 }] });
-    expect((rowsOf('ask')[0].querySelector('.ice-book-px') as HTMLElement).style.color).toBe('rgb(0, 0, 255)');
+    expect((rowsOf('ask')[0].querySelector('.ice-book-px') as HTMLElement).style.color).toBe('rgb(14, 203, 129)');
+  });
+
+  it('列名与「合计」列：从最优价往外累加', () => {
+    book = createOrderBook(host, { levels: 3, labels: { price: '价格 (USDT)', size: '数量 (SYN)', total: '合计 (SYN)' } });
+    book.update({
+      asks: [
+        { price: 101, size: 1 },
+        { price: 102, size: 2 },
+        { price: 103, size: 4 },
+      ],
+      bids: [
+        { price: 99, size: 3 },
+        { price: 98, size: 5 },
+        { price: 97, size: 7 },
+      ],
+    });
+    const head = Array.from(host.querySelectorAll('.ice-book-head span')).map((node) => node.textContent);
+    expect(head).toEqual(['价格 (USDT)', '数量 (SYN)', '合计 (SYN)']);
+    const totalOf = (row: HTMLElement) => (row.querySelector('.ice-book-tt') as HTMLElement).textContent;
+    // 卖盘自上而下是最远 → 最优：合计也是从最优价（最下面那行）往外累加
+    expect(totalOf(rowsOf('ask')[2])).toBe('1.00');
+    expect(totalOf(rowsOf('ask')[1])).toBe('3.00');
+    expect(totalOf(rowsOf('ask')[0])).toBe('7.00');
+    expect(totalOf(rowsOf('bid')[0])).toBe('3.00');
+    expect(totalOf(rowsOf('bid')[2])).toBe('15.00');
   });
 
   it('数据没变时一次 DOM 都不写（签名去重）', () => {

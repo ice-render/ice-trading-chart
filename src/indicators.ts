@@ -214,6 +214,8 @@ export interface OverlaySpec {
   boll?: { period?: number; multiplier?: number } | false;
   /** 均线线宽（CSS px），默认 1.2。 */
   lineWidth?: number;
+  /** 均线配色（按 MA、EMA 依次取），不给就用内置色板。 */
+  palette?: string[];
 }
 
 /**
@@ -246,7 +248,7 @@ export function createOverlaySeries(
     } as SeriesOption);
   };
 
-  const palette = ['#f5a524', '#3b82f6', '#a78bfa', '#22c55e', '#ec4899'];
+  const palette = spec.palette && spec.palette.length ? spec.palette : ['#f5a524', '#3b82f6', '#a78bfa', '#22c55e', '#ec4899'];
   (spec.ma || []).forEach((period, i) => {
     push(`${candles.id}__ma${period}`, `MA${period}`, sma(closes, period), palette[i % palette.length]);
   });

@@ -4,260 +4,354 @@
     <meta charset="utf-8" />
     <title>ice-trading-chart · 交易终端</title>
     <style>
+      /* ================= 深色合约终端配色（对齐主流合约交易所的盘面） =================
+         底色近黑、面板浅一档、边框极细；涨绿跌红；强调色是品牌黄（选中态 / 主按钮）。
+         数字一律等宽字体，报价带千分位。 */
       :root {
-        --bg: #0b0f16;
-        --panel: #111823;
-        --panel-2: #0e141c;
-        --line: #1e2733;
-        --line-soft: #182029;
-        --text: #dfe7ef;
-        --dim: #8a97a6;
-        --muted: #5c6a7a;
-        --accent: #3b82f6;
-        /* 十字准星的标尺色（竖线由引擎按 TerminalPage.RULER_COLOR 画，横线由 .hline 画） */
-        --ruler: rgba(138, 151, 166, 0.72);
-        --up: #f04438;
-        --down: #12b76a;
-        --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Roboto Mono', monospace;
+        --bg: #0b0e11;
+        --panel: #181a20;
+        --panel-2: #1e2329;
+        --line: #2b3139;
+        --line-soft: #21262e;
+        --text: #eaecef;
+        --dim: #b7bdc6;
+        --muted: #848e9c;
+        --accent: #f0b90b;
+        --accent-ink: #0b0e11;
+        --ruler: rgba(132, 142, 156, 0.66);
+        --up: #0ecb81;
+        --down: #f6465d;
+        --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        --mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
       * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); color: var(--text); font: 12px/1.5 var(--font); overflow-x: hidden; }
-      b { font-family: var(--mono); }
-
-      /* ---------------- 顶部行情条 ---------------- */
-      .topbar {
-        display: flex; align-items: center; gap: 20px; padding: 8px 14px;
-        background: linear-gradient(180deg, #131b26 0%, #0f151e 100%);
-        border-bottom: 1px solid var(--line); flex-wrap: wrap;
+      body {
+        margin: 0; background: var(--bg); color: var(--text); font: 12px/1.5 var(--font);
+        overflow: hidden; height: 100vh; display: flex; flex-direction: column;
       }
-      .symbol { font-size: 15px; font-weight: 600; display: flex; align-items: baseline; gap: 6px; }
-      .symbol small { color: var(--muted); font-weight: 400; }
+      b { font-family: var(--mono); font-weight: 500; }
+      .mono { font-family: var(--mono); }
+      .up { color: var(--up); }
+      .down { color: var(--down); }
+      button { font-family: inherit; }
+
+      /* ---------------- 顶部：行情跑马灯 + 交易对抬头 ---------------- */
+      .ticker-strip {
+        display: flex; align-items: center; gap: 18px; height: 28px; padding: 0 12px;
+        background: var(--panel); border-bottom: 1px solid var(--line); overflow: hidden;
+        font: 12px/1 var(--mono); white-space: nowrap; flex: 0 0 auto;
+      }
+      .ticker-strip .tk { color: var(--muted); }
+      .ticker-strip .tk b { color: inherit; font-weight: 500; }
+      .ticker-strip .tk i { font-style: normal; color: var(--dim); }
+
+      .symbol-bar {
+        display: flex; align-items: center; gap: 18px; padding: 6px 12px 8px;
+        background: var(--panel); border-bottom: 1px solid var(--line); flex: 0 0 auto; flex-wrap: wrap;
+      }
+      .symbol-id { display: flex; align-items: center; gap: 8px; min-width: 300px; }
+      .symbol-id .star { color: var(--accent); font-size: 14px; cursor: pointer; }
+      .symbol-id .coin {
+        width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-ink);
+        display: inline-flex; align-items: center; justify-content: center; font: 600 11px/1 var(--font);
+      }
+      .symbol-id .pair { font-size: 17px; font-weight: 600; letter-spacing: 0.2px; }
+      .symbol-id .pair small { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
+      .symbol-id .caret { color: var(--muted); font-size: 10px; }
+      .symbol-id .mark { display: flex; flex-direction: column; margin-left: 10px; }
+      .symbol-id .mark b { font-size: 22px; font-weight: 600; letter-spacing: 0.2px; }
+      .symbol-id .mark span { font-size: 12px; }
+      .stats { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
       .stat { display: flex; flex-direction: column; gap: 1px; }
-      .stat span { color: var(--muted); font-size: 10px; }
-      .stat b { font-size: 12px; font-weight: 500; }
-      .stat .last { font-size: 20px; font-weight: 600; }
-      .topbar .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .stat span { color: var(--muted); font-size: 11px; }
+      .stat b { font-size: 12px; }
+      .symbol-bar .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
-      /* ---------------- 三栏 ---------------- */
-      /* 左到右：图表（自适应）· 盘口 · 下单面板 */
-      .terminal { display: grid; grid-template-columns: minmax(0, 1fr) 228px 262px; gap: 1px; background: var(--line); }
-      .col { background: var(--panel-2); min-width: 0; }
-      .blk { border-bottom: 1px solid var(--line); }
-      .blk:last-child { border-bottom: none; }
-      .blk > header {
-        display: flex; align-items: center; gap: 8px; padding: 6px 10px; height: 30px;
-        color: var(--dim); font-size: 11px; border-bottom: 1px solid var(--line-soft);
+      /* ---------------- 通用面板 / 按钮 ---------------- */
+      .btn {
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+        color: var(--dim); padding: 4px 10px; font-size: 12px; cursor: pointer;
       }
-      .blk > header .right { margin-left: auto; color: var(--muted); }
+      .btn:hover { color: var(--text); border-color: #3a424c; }
+      .btn.on { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 600; }
 
-      /* 下单 */
-      form.order { padding: 8px 10px 10px; display: grid; gap: 7px; }
-      .tabs { display: flex; gap: 12px; border-bottom: 1px solid var(--line-soft); padding-bottom: 5px; }
-      .tabs button {
-        background: none; border: 0; color: var(--muted); font-size: 12px; cursor: pointer;
-        padding: 2px 0; border-bottom: 2px solid transparent;
+      .workspace {
+        flex: 1 1 auto; min-height: 0; display: grid; gap: 4px; padding: 4px;
+        grid-template-columns: minmax(0, 1fr) 252px 268px;
+        grid-template-rows: minmax(0, 1fr) 232px;
+        background: var(--bg);
       }
-      .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
-      .field { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 6px; }
-      .field label { color: var(--muted); font-size: 11px; }
-      .field input {
-        width: 100%; background: #0b1119; border: 1px solid var(--line); border-radius: 3px;
-        color: var(--text); padding: 5px 7px; font: 12px/1.4 var(--mono);
+      .panel {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+        min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
       }
-      .field input:disabled { color: var(--muted); }
-      .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-      .leverage { display: grid; grid-template-columns: 32px 1fr 44px; align-items: center; gap: 6px; }
-      .leverage input[type='range'] { width: 100%; }
-      .checks { display: flex; gap: 12px; color: var(--dim); font-size: 11px; flex-wrap: wrap; }
-      .checks label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-      .submit { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-      .submit button {
-        border: 0; border-radius: 3px; padding: 8px 0; color: #fff; font-size: 13px;
-        font-weight: 600; cursor: pointer;
+      .chart-col { grid-column: 1; grid-row: 1; }
+      .book-col { grid-column: 2; grid-row: 1; }
+      .order-col { grid-column: 3; grid-row: 1 / span 2; display: flex; flex-direction: column; gap: 4px; background: none; border: 0; }
+      .bottom-col { grid-column: 1 / span 2; grid-row: 2; }
+      .panel-head {
+        display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px;
+        color: var(--text); font-size: 13px; font-weight: 600;
       }
-      .submit .buy { background: var(--up); }
-      .submit .sell { background: var(--down); }
-      .submit button:hover { filter: brightness(1.1); }
-      .hintline { color: var(--muted); font-size: 10px; }
+      .panel-head .right { margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 400; }
+      .panel-section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 
-      /* 图表区 */
-      .chart-col { display: flex; flex-direction: column; }
+      /* ---------------- 图表顶部工具条（图标 + 下拉） ---------------- */
       .chart-bar {
-        display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+        display: flex; align-items: center; gap: 6px; padding: 6px 10px; flex: 0 0 auto;
         border-bottom: 1px solid var(--line-soft); flex-wrap: wrap;
       }
-      .sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
-      .btn {
-        background: #161d28; border: 1px solid #2a3646; border-radius: 3px; color: #a8b4c2;
-        padding: 3px 8px; font-size: 11px; cursor: pointer;
+      .chart-bar .tabs { display: flex; gap: 14px; }
+      .chart-bar .tabs button {
+        background: none; border: 0; color: var(--muted); font-size: 13px; cursor: pointer;
+        padding: 2px 0 4px; border-bottom: 2px solid transparent;
       }
-      .btn:hover { color: var(--text); border-color: var(--accent); }
-      .btn.on { color: #fff; background: rgba(59, 130, 246, 0.22); border-color: var(--accent); }
-
-      /* 图表顶部工具条：内联的收藏项 + 下拉菜单 */
+      .chart-bar .tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+      .sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
       .tb-menu { position: relative; }
-      /*
-        工具条的触发按钮用**图标**（主流看盘软件的顶部小工具条都是图标 + 悬停提示）：
-        透明底 + 悬停浅底 + 打开时高亮，图标是内联 SVG（stroke 走 currentColor，深浅色都能用）。
-        「周期」那个额外带一个当前周期文字（周期本身是文字信息，图标说不清是哪一个）。
-      */
       .tb-trigger {
         display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 6px;
         background: none; border: 1px solid transparent; border-radius: 4px;
-        color: #a8b4c2; cursor: pointer; position: relative;
+        color: var(--dim); cursor: pointer; position: relative;
       }
-      .tb-trigger:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+      .tb-trigger:hover { background: var(--panel-2); color: var(--text); }
       .tb-trigger svg { width: 16px; height: 16px; display: block; }
-      .tb-trigger .lbl { font: 11px/1 var(--mono); color: inherit; }
-      /* 有内容时的标记点：指标开着 / 画线工具武装着 / 显示改了默认值 */
+      .tb-trigger .lbl { font: 12px/1 var(--mono); color: inherit; }
       .tb-trigger .dot {
         display: none; position: absolute; right: 3px; top: 3px; width: 4px; height: 4px;
         border-radius: 50%; background: var(--accent);
       }
       .tb-trigger.on .dot { display: block; }
-      .tb-trigger.on { color: #dfe7ef; }
-      .tb-menu.open .tb-trigger { color: #fff; background: rgba(59, 130, 246, 0.18); }
+      .tb-trigger.on { color: var(--text); }
+      .tb-menu.open .tb-trigger { color: var(--text); background: var(--panel-2); }
       .tb-panel {
         position: absolute; top: calc(100% + 5px); left: 0; z-index: 40; display: none;
-        min-width: 196px; max-height: 340px; overflow: auto;
-        background: #131b26; border: 1px solid #2a3646; border-radius: 5px;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); padding: 5px;
+        min-width: 200px; max-height: 340px; overflow: auto;
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55); padding: 5px;
       }
       .tb-menu.open .tb-panel { display: block; }
-      .tb-title { padding: 3px 7px; color: var(--muted); font-size: 10px; }
-      /* 指标参数：小号数字输入（改完回车 / 失焦生效） */
-      .tb-param { display: flex; align-items: center; gap: 5px; padding: 3px 7px; color: var(--dim); font-size: 11px; }
+      .tb-title { padding: 3px 7px; color: var(--muted); font-size: 11px; }
+      .tb-item {
+        display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 4px;
+        cursor: pointer; font-size: 12px; color: var(--dim); white-space: nowrap;
+      }
+      .tb-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+      .tb-item.active { color: var(--text); background: rgba(240, 185, 11, 0.14); }
+      .tb-mark { width: 10px; color: var(--accent); }
+      .tb-param { display: flex; align-items: center; gap: 5px; padding: 4px 7px; color: var(--dim); font-size: 12px; }
       .tb-param input {
-        width: 46px; background: #0b1119; border: 1px solid var(--line); border-radius: 3px;
-        color: var(--text); padding: 2px 4px; font: 11px/1.4 var(--mono);
+        width: 46px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+        color: var(--text); padding: 3px 4px; font: 12px/1.4 var(--mono);
       }
-      /* 价格轴右键菜单 */
-      .ctx-menu {
-        position: fixed; z-index: 60; display: none; min-width: 148px; padding: 5px;
-        background: #131b26; border: 1px solid #2a3646; border-radius: 5px;
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); font-size: 11px; color: #a8b4c2;
-      }
-      .ctx-menu.open { display: block; }
-      /* 左侧画线图标条（主流看盘软件把画线工具放在图表左边缘，竖排图标） */
-      .chart-body { display: flex; align-items: stretch; min-height: 0; }
+      .readout { margin-left: auto; color: var(--muted); font: 11px/1.4 var(--mono); }
+
+      /* ---------------- 图表本体 ---------------- */
+      .chart-body { flex: 1 1 auto; min-height: 0; display: flex; align-items: stretch; }
       .draw-bar {
-        width: 42px; flex: 0 0 42px; display: flex; flex-direction: column; align-items: center;
-        gap: 2px; padding: 6px 0; border-right: 1px solid var(--line-soft); background: var(--panel-2);
+        width: 38px; flex: 0 0 38px; display: flex; flex-direction: column; align-items: center;
+        gap: 2px; padding: 6px 0; border-right: 1px solid var(--line-soft);
       }
       .draw-bar .spacer { flex: 1; }
       .draw-tool {
-        width: 30px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
-        background: none; border: 1px solid transparent; border-radius: 4px; color: #a8b4c2; cursor: pointer;
+        width: 28px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+        background: none; border: 1px solid transparent; border-radius: 4px; color: var(--dim); cursor: pointer;
       }
-      .draw-tool:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
-      .draw-tool.on { background: rgba(59, 130, 246, 0.18); color: #fff; }
+      .draw-tool:hover { background: var(--panel-2); color: var(--text); }
+      .draw-tool.on { background: rgba(240, 185, 11, 0.16); color: var(--accent); }
       .draw-tool svg { width: 16px; height: 16px; }
-      .chart-main { flex: 1; min-width: 0; }
-      .tb-item {
-        display: flex; align-items: center; gap: 7px; padding: 4px 7px;
-        border-radius: 3px; cursor: pointer; font-size: 11px; color: #a8b4c2; white-space: nowrap;
+      .chart-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+      #panes { flex: 1 1 auto; min-height: 360px; }
+      .chart-foot {
+        display: flex; gap: 16px; padding: 5px 10px; border-top: 1px solid var(--line-soft);
+        font: 11px/1.5 var(--mono); color: var(--muted); flex: 0 0 auto;
       }
-      .tb-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
-      .tb-item.active { color: #fff; background: rgba(59, 130, 246, 0.18); }
-      .tb-item .tb-mark { width: 12px; text-align: center; color: var(--accent); }
-      .tb-item .tb-star { margin-left: auto; opacity: 0.35; }
-      .tb-item .tb-star.on { opacity: 1; }
-      .tb-detail { padding: 3px 7px; color: var(--muted); font-size: 10px; }
-      .tb-form { display: grid; grid-template-columns: 1fr 62px auto; gap: 5px; padding: 4px 6px 6px; }
-      .tb-form select, .tb-form input {
-        background: #0b1119; border: 1px solid var(--line); border-radius: 3px;
-        color: var(--text); padding: 3px 5px; font: 11px/1.4 var(--mono);
-      }
-      .tb-form button {
-        background: #161d28; border: 1px solid #2a3646; border-radius: 3px;
-        color: #a8b4c2; padding: 3px 7px; font-size: 11px; cursor: pointer;
-      }
-      .tb-form button:hover { color: var(--text); border-color: var(--accent); }
+      .chart-foot b { color: var(--dim); }
+      #s-hint { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-      #panes { padding: 4px 6px 0; position: relative; }
-
-      /*
-        图表外壳：HTML 覆盖层。挂点不是主图那一格，而是**整摞 pane 的容器** ——
-        十字准星的横线要能画在指针所在的那一块里，覆盖层就必须盖住三块 pane。
-        位置与尺寸由 syncChromeBox() 显式对齐到主图画布左上角（`#panes` 有内边距，
-        直接 `inset: 0` 会整体偏掉）。
-      */
+      /* 图表外壳（HTML 覆盖层，几何由 syncChromeBox 对齐到主图画布） */
       .chrome { position: absolute; left: 0; top: 0; pointer-events: none; font-family: var(--mono); }
       .chrome > * { position: absolute; }
       .ohlc { display: flex; gap: 9px; font-size: 11px; white-space: nowrap; }
       .ohlc .sym { color: var(--text); font-weight: 600; }
       .ohlc .kv { color: var(--muted); }
-      .ohlc .kv b { font-weight: 500; color: var(--dim); }
-      /*
-        副图 / 成交量那一行的「图例」（主流看盘软件每块 pane 左上角都有一行）：
-        指标名 + 参数 + 当前值，值的颜色跟涨跌走。
-      */
+      .ohlc .kv b { color: var(--dim); }
       .pane-title { display: flex; gap: 9px; font-size: 11px; white-space: nowrap; color: var(--muted); }
       .pane-title .name { color: var(--dim); font-weight: 600; }
       .pane-title .arg { color: var(--muted); }
       .pane-title .val { color: var(--dim); }
       .pane-title .up { color: var(--up); }
       .pane-title .down { color: var(--down); }
-      /* 主图的水印：大号淡字，压在 K 线下面（主流看盘软件的样子） */
-      /* 会话分隔线：每天第一根上的淡竖线（画在外壳层里，颜色极淡） */
-      .session-layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
-      .session-layer i { position: absolute; width: 0; border-left: 1px solid rgba(255, 255, 255, 0.055); }
-      .watermark {
-        transform: translate(-50%, -50%); font-size: 46px; font-weight: 600; letter-spacing: 3px;
-        color: rgba(223, 231, 239, 0.05); white-space: nowrap; pointer-events: none;
-      }
-      /*
-        十字准星的两条线都由页面画（自由跟随指针），见 TerminalPage.RULER_COLOR。
-        两条线用同一种虚线边框，节奏天然一致 —— 之前竖线是 canvas 的 setLineDash([3,3])、
-        横线是 CSS 边框，两者的虚线节奏其实不一样。
-      */
       .hline { height: 0; border-top: 1px dashed var(--ruler); }
-      /* 竖线贯穿整摞 pane：一条元素从最上面那块绘图区的顶画到最后一块绘图区的底 */
       .vline { width: 0; border-left: 1px dashed var(--ruler); }
       .lastline { height: 0; border-top: 1px dashed var(--accent); }
-      .tag { padding: 2px 5px; border-radius: 2px; font-size: 11px; text-align: center; overflow: hidden; white-space: nowrap; }
-      .tag.price { background: rgba(138, 151, 166, 0.92); color: #0b0f16; }
-      /* 时间签按标签实际宽度居中（周线/月线标签比 `HH:MM` 长得多，写死宽度会截断） */
-      .tag.time { background: rgba(138, 151, 166, 0.92); color: #0b0f16; transform: translateX(-50%); }
+      .session-layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+      .session-layer i { position: absolute; width: 0; border-left: 1px solid rgba(255, 255, 255, 0.05); }
+      .watermark {
+        transform: translate(-50%, -50%); font-size: 42px; font-weight: 600; letter-spacing: 2px;
+        color: rgba(234, 236, 239, 0.04); white-space: nowrap; pointer-events: none;
+      }
+      .tag { padding: 1px 5px; border-radius: 2px; font: 11px/1.5 var(--mono); text-align: center; white-space: nowrap; overflow: hidden; }
+      .tag.price { background: var(--muted); color: var(--bg); }
       .tag.last { color: #fff; }
+      .tag.time { background: var(--muted); color: var(--bg); transform: translateX(-50%); }
 
-      .chart-foot {
-        display: flex; gap: 16px; padding: 6px 10px; border-top: 1px solid var(--line-soft);
-        font: 11px/1.6 var(--mono); color: var(--muted);
+      /* 盘口 / 最新成交 */
+      .book-col { gap: 0; }
+      /* 盘口按**自身高度**排（十档 + 中间价那一行），剩下的高度全给最新成交 ——
+         早先按 55%/45% 分，十档排不下就画到成交那一块上去了（实测） */
+      .book-col #order-book { flex: 0 0 auto; overflow: hidden; }
+      .trades-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+      .trades-head { display: flex; align-items: center; gap: 14px; padding: 6px 10px 4px; }
+      .trades-head button {
+        background: none; border: 0; color: var(--muted); font-size: 13px; cursor: pointer;
+        padding: 2px 0 3px; border-bottom: 2px solid transparent;
       }
-      .chart-foot b { color: var(--dim); font-weight: 500; }
+      .trades-head button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+      .trades { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 10px 6px; }
+      .trades table { width: 100%; border-collapse: collapse; }
+      .trades th { color: var(--muted); font: 11px/1.6 var(--mono); font-weight: 400; text-align: right; padding: 2px 0; }
+      .trades th:first-child, .trades td:first-child { text-align: left; }
+      .trades td { font: 11px/1.55 var(--mono); padding: 1px 0; color: var(--dim); text-align: right; white-space: nowrap; }
 
-      /* 底部三块 */
-      .bottom {
-        border-top: 1px solid var(--line); background: var(--panel-2); display: grid;
-        grid-template-columns: minmax(0, 3fr) minmax(0, 3fr) minmax(0, 2fr); gap: 1px;
+      /* 下单面板 */
+      .order-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+      .order-top { display: flex; align-items: center; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line-soft); }
+      .pill {
+        background: var(--panel-2); border: 1px solid transparent; border-radius: 4px; color: var(--text);
+        padding: 4px 10px; font: 12px/1.3 var(--mono); cursor: pointer;
       }
+      .pill.dim { color: var(--muted); }
+      .pill:hover { border-color: #3a424c; }
+      .order-top .spacer { margin-left: auto; color: var(--muted); }
+      form.order { padding: 8px 10px 10px; display: grid; gap: 6px; }
+      .order-tabs { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line-soft); padding-bottom: 6px; }
+      .order-tabs button {
+        background: none; border: 0; color: var(--muted); font-size: 13px; cursor: pointer;
+        padding: 1px 0 4px; border-bottom: 2px solid transparent;
+      }
+      .order-tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+      .order-tabs .spacer { margin-left: auto; }
+      .order-tabs .info { color: var(--muted); font-size: 13px; }
+      .avail { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+      .avail b { color: var(--dim); }
+      .field-label { color: var(--muted); font-size: 11px; margin-top: 2px; }
+      .field-row { display: grid; grid-template-columns: minmax(0, 1fr) 62px; gap: 6px; align-items: stretch; }
+      .input-wrap {
+        display: flex; align-items: center; gap: 6px; background: var(--bg);
+        border: 1px solid var(--line); border-radius: 4px; padding: 0 8px; height: 32px;
+      }
+      .input-wrap:focus-within { border-color: var(--accent); }
+      .input-wrap input {
+        flex: 1 1 auto; min-width: 0; background: none; border: 0; outline: none;
+        color: var(--text); font: 14px/1.4 var(--mono);
+      }
+      .input-wrap input:disabled { color: var(--muted); }
+      .input-wrap .unit { color: var(--muted); font: 12px/1 var(--mono); }
+      .best {
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+        color: var(--dim); font-size: 11px; cursor: pointer;
+      }
+      .best:hover { color: var(--text); }
+      /* 百分比滑杆（25% 一档的菱形刻度 + 可拖动的手柄） */
+      .pct-slider { position: relative; height: 26px; margin: 2px 0 0; }
+      .pct-slider .track { position: absolute; left: 5px; right: 5px; top: 12px; height: 1px; background: var(--line); }
+      .pct-slider .tick {
+        position: absolute; top: 9px; width: 7px; height: 7px; margin-left: -3.5px;
+        border: 1px solid var(--muted); background: var(--panel); transform: rotate(45deg); cursor: pointer;
+      }
+      .pct-slider .tick.on { border-color: var(--accent); background: var(--accent); }
+      .pct-slider .tick:hover { border-color: var(--text); }
+      .leverage { display: grid; grid-template-columns: 32px 1fr 34px; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+      .leverage input[type='range'] { width: 100%; accent-color: var(--accent); }
+      .leverage b { color: var(--dim); font: 12px/1 var(--mono); }
+      .checks { display: flex; gap: 14px; color: var(--dim); font-size: 11px; flex-wrap: wrap; }
+      .checks label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+      .checks input { accent-color: var(--accent); }
+      .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .row-2 input {
+        background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+        color: var(--text); padding: 6px 8px; font: 12px/1.4 var(--mono);
+      }
+      .submit { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 2px; }
+      .submit button { border: 0; border-radius: 4px; padding: 10px 0; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+      .submit .buy { background: var(--up); }
+      .submit .sell { background: var(--down); }
+      .submit button:hover { filter: brightness(1.08); }
+      .hintline { color: var(--muted); font-size: 11px; min-height: 15px; }
+
+      /* 账户 */
+      .account { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px 10px; }
+      .account h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+      .account .acct-title { color: var(--text); font-size: 12px; margin-bottom: 6px; }
+      .account .row { display: flex; justify-content: space-between; padding: 3px 0; color: var(--muted); font-size: 12px; }
+      .account .row b { color: var(--text); }
+      .account .acct-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
+      .account .acct-actions button {
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+        color: var(--muted); padding: 6px 0; font-size: 11px; cursor: pointer;
+      }
+      .account .acct-actions button:hover { color: var(--text); }
+
+      /* 底部：持仓 / 委托 / 画线记录（选项卡） */
+      .bottom-tabs { display: flex; align-items: center; gap: 18px; padding: 8px 12px 6px; border-bottom: 1px solid var(--line-soft); }
+      .bottom-tabs button {
+        background: none; border: 0; color: var(--muted); font-size: 13px; cursor: pointer;
+        padding: 2px 0 5px; border-bottom: 2px solid transparent;
+      }
+      .bottom-tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+      .bottom-tabs .count { color: var(--muted); font-size: 12px; }
+      .bottom-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+      .bottom-body .pane { display: none; height: 100%; }
+      .bottom-body .pane.on { display: block; }
       table { width: 100%; border-collapse: collapse; }
-      th, td { padding: 5px 10px; text-align: right; font: 11px/1.6 var(--mono); white-space: nowrap; }
-      th { color: var(--muted); font-weight: 400; border-bottom: 1px solid var(--line-soft); }
+      th, td { padding: 6px 12px; text-align: right; font: 12px/1.6 var(--mono); white-space: nowrap; }
+      th { color: var(--muted); font-weight: 400; font-size: 11px; border-bottom: 1px solid var(--line-soft); }
       th:first-child, td:first-child { text-align: left; }
       tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
-      td.empty { color: var(--muted); text-align: center; padding: 12px; }
+      td.empty { color: var(--muted); text-align: center; padding: 18px; }
       .cancel { color: var(--accent); cursor: pointer; }
       pre.dump {
-        margin: 0; padding: 8px 10px; max-height: 132px; overflow: auto;
-        font: 10px/1.55 var(--mono); color: #9fb6d4; white-space: pre-wrap;
+        margin: 0; padding: 8px 12px; max-height: 168px; overflow: auto;
+        font: 11px/1.6 var(--mono); color: var(--dim); white-space: pre-wrap;
       }
-      .lead { color: var(--dim); margin: 12px 14px 16px; font-size: 11px; }
+
+      /* 价格轴右键菜单 */
+      .ctx-menu {
+        position: fixed; z-index: 60; display: none; min-width: 148px; padding: 5px;
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55); font-size: 12px; color: var(--dim);
+      }
+      .ctx-menu.open { display: block; }
+      .lead { color: var(--muted); margin: 10px 14px 16px; font-size: 11px; }
       .lead code { color: var(--accent); }
     </style>
   </head>
   <body>
     <!-- 价格轴右键菜单（贴在指针位置；挂在 body 上，因为图表外壳那一层是 pointer-events:none） -->
     <div class="ctx-menu" id="ctx-menu"></div>
-    <header class="topbar">
-      <div class="symbol">SYN/USDT<small>永续</small></div>
-      <div class="stat"><span>最新价</span><b class="last" id="t-last">-</b></div>
-      <div class="stat"><span>24h 涨跌</span><b id="t-chg">-</b></div>
-      <div class="stat"><span>24h 高 / 低</span><b id="t-hilo">-</b></div>
-      <div class="stat"><span>24h 量</span><b id="t-vol">-</b></div>
-      <div class="stat"><span>资金费率 / 结算</span><b id="t-funding">-</b></div>
+
+    <!-- 行情跑马灯：一排交易对的涨跌（等宽字体，涨绿跌红） -->
+    <div class="ticker-strip" id="ticker-strip"></div>
+
+    <!-- 交易对抬头：符号 + 标记价 + 一排指标（对齐合约交易所的抬头） -->
+    <header class="symbol-bar">
+      <div class="symbol-id">
+        <span class="star" title="自选">★</span>
+        <span class="coin">SYN</span>
+        <span class="pair">SYN/USDT<small>永续</small></span>
+        <span class="caret">▾</span>
+        <div class="mark"><b id="t-last">-</b><span id="t-chg">-</span></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span>标记价格</span><b id="t-mark">-</b></div>
+        <div class="stat"><span>指数价格</span><b id="t-index">-</b></div>
+        <div class="stat"><span>资金费率 (8时) / 倒计时</span><b><i id="t-funding" style="font-style:normal">-</i> / <i id="t-fund-countdown" style="font-style:normal">--:--:--</i></b></div>
+        <div class="stat"><span>24h 最高价</span><b id="t-high">-</b></div>
+        <div class="stat"><span>24h 最低价</span><b id="t-low">-</b></div>
+        <div class="stat"><span>24h 成交量 (SYN)</span><b id="t-vol">-</b></div>
+        <div class="stat"><span>24h 成交额 (USDT)</span><b id="t-amount">-</b></div>
+      </div>
       <div class="tools">
         <button class="btn" id="btn-toggle">暂停</button>
         <button class="btn" id="btn-reset">重置</button>
@@ -265,11 +359,13 @@
       </div>
     </header>
 
-    <div class="terminal">
-      <div class="col chart-col">
-        <!-- 图表顶部工具条：常显的收藏周期 + 分组下拉（周期 / 指标 / 画线 / 显示） -->
+    <div class="workspace">
+      <!-- ① 图表 -->
+      <section class="panel chart-col">
         <div class="chart-bar" id="chart-bar">
-          <div class="tabs" id="tb-intervals" style="border:0;padding:0"></div>
+          <div class="tabs"><button type="button" class="on">图表</button><button type="button">信息</button><button type="button">数据</button></div>
+          <span class="sep"></span>
+          <div class="tabs" id="tb-intervals"></div>
           <div class="tb-menu" data-menu="intervals">
             <button class="tb-trigger" type="button" title="周期" aria-label="周期">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
@@ -292,7 +388,6 @@
             </button>
             <div class="tb-panel" id="panel-type"></div>
           </div>
-          <span class="sep"></span>
           <div class="tb-menu" data-menu="indicators">
             <button class="tb-trigger" type="button" title="指标" aria-label="指标">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
@@ -316,8 +411,8 @@
             <button class="tb-trigger" type="button" title="显示" aria-label="显示">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                 <path d="M2.6 4.6h10.8M2.6 11.4h10.8" />
-                <circle cx="6" cy="4.6" r="1.6" fill="var(--panel-2)" />
-                <circle cx="10.4" cy="11.4" r="1.6" fill="var(--panel-2)" />
+                <circle cx="6" cy="4.6" r="1.6" fill="var(--panel)" />
+                <circle cx="10.4" cy="11.4" r="1.6" fill="var(--panel)" />
               </svg>
               <i class="dot"></i>
             </button>
@@ -326,45 +421,67 @@
           <span class="readout" id="readout">-</span>
         </div>
         <div class="chart-body">
-          <!-- 左侧画线图标条（主流看盘软件的样子：竖排图标，选中态高亮） -->
+          <!-- 左侧画线图标条（竖排图标，选中态高亮） -->
           <div class="draw-bar" id="draw-bar"></div>
           <div class="chart-main">
             <div id="panes"></div>
             <div class="chart-foot">
-              <span>收盘倒计时 <b id="s-countdown">--:--</b></span>
-              <span>下一根 <b id="s-next">-</b></span>
+              <span>下一根 <b id="s-countdown">--:--</b></span>
+              <span>距资金费率 <b id="s-next">--:--</b></span>
               <span>已推送 <b id="s-pushed">0</b></span>
               <span>fps <b id="s-fps">0</b></span>
-              <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane · 标尺：上下拖 / 滚轮缩放、双击自适应、右键菜单 · 键盘：←→ 平移、↑↓ 价格轴、+/- 时间轴、Home 回到最新</span>
+              <span id="s-hint">滚轮缩放任一 pane · 标尺：上下拖 / 滚轮缩放、双击自适应、右键菜单 · 键盘：←→ 平移、↑↓ 价格轴、+/- 时间轴、Home 回到最新</span>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div class="col">
-        <section class="blk">
-          <header>盘口 <span class="right" id="b-levels">10 档</span></header>
-          <!-- 盘口由库里的 createOrderBook 组件渲染（结构 / 样式 / 深度条 / 点击都在组件里） -->
-          <div id="order-book"></div>
-        </section>
-      </div>
+      <!-- ② 订单簿 + 最新成交 -->
+      <section class="panel book-col">
+        <div class="panel-head">订单簿 <span class="right" id="b-levels">10 档</span></div>
+        <!-- 盘口由库里的 createOrderBook 组件渲染（结构 / 样式 / 深度条 / 点击都在组件里） -->
+        <div id="order-book"></div>
+        <div class="trades-wrap">
+          <div class="trades-head">
+            <button type="button" class="on">最新成交</button>
+            <button type="button">市场异动</button>
+          </div>
+          <div class="trades">
+            <table>
+              <thead><tr><th>价格 (USDT)</th><th>数量 (SYN)</th><th>时间</th></tr></thead>
+              <tbody id="trades"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
 
-      <div class="col">
-        <section class="blk">
-          <header>下单 <span class="right" id="o-avail">-</span></header>
+      <!-- ③ 下单 + 账户 -->
+      <section class="order-col">
+        <div class="order-panel">
+          <div class="order-top">
+            <button type="button" class="pill" data-margin="cross">全仓</button>
+            <button type="button" class="pill dim" data-margin="isolated">逐仓</button>
+            <button type="button" class="pill" id="o-lev-pill" title="杠杆">10x</button>
+            <span class="spacer">···</span>
+          </div>
           <form class="order" id="order-form" onsubmit="return false">
-            <div class="tabs" id="order-tabs">
+            <div class="order-tabs" id="order-tabs">
               <button type="button" data-type="limit" class="on">限价</button>
               <button type="button" data-type="market">市价</button>
-              <div class="tabs" style="margin-left:auto;border:0;padding:0">
-                <button type="button" data-margin="cross" class="on">全仓</button>
-                <button type="button" data-margin="isolated">逐仓</button>
-              </div>
+              <span class="spacer"></span>
+              <span class="info" title="限价单以指定价格挂单；市价单立即成交">ⓘ</span>
             </div>
-            <div class="field"><label>价格</label><input id="o-price" class="mono" type="text" inputmode="decimal" /></div>
-            <div class="field"><label>数量</label><input id="o-size" class="mono" type="text" inputmode="decimal" value="0.5" /></div>
+            <div class="avail"><span>可用</span><b id="o-avail">-</b></div>
+            <div class="field-label">委托价格</div>
+            <div class="field-row">
+              <div class="input-wrap"><input id="o-price" class="mono" type="text" inputmode="decimal" /><span class="unit">USDT</span></div>
+              <button type="button" class="best" id="o-best">最优价</button>
+            </div>
+            <div class="field-label">数量</div>
+            <div class="input-wrap"><input id="o-size" class="mono" type="text" inputmode="decimal" value="0.5" /><span class="unit">SYN</span></div>
+            <div class="pct-slider" id="o-pct" title="按可用保证金的百分比填数量"></div>
             <div class="leverage">
-              <label style="color:var(--muted);font-size:11px">杠杆</label>
+              <label>杠杆</label>
               <input id="o-lev" type="range" min="1" max="50" value="10" />
               <b id="o-lev-text">10×</b>
             </div>
@@ -382,38 +499,47 @@
             </div>
             <div class="hintline" id="o-hint">可用 100,000 USDT · 市价单立即成交</div>
           </form>
-        </section>
-      </div>
-    </div>
+        </div>
+        <div class="account">
+          <h4>账户</h4>
+          <div class="acct-title">保证金比率</div>
+          <div class="row"><span>保证金比率</span><b id="acct-ratio">0.00%</b></div>
+          <div class="row"><span>维持保证金</span><b id="acct-maint">0.0000 USDT</b></div>
+          <div class="row"><span>保证金余额</span><b id="acct-balance">-</b></div>
+          <div class="acct-actions">
+            <button type="button" data-action="transfer">划转</button>
+            <button type="button" data-action="buy">买币</button>
+            <button type="button" data-action="convert">兑换</button>
+          </div>
+        </div>
+      </section>
 
-    <div class="bottom">
-      <section class="blk">
-        <header>持仓 <span class="right" id="p-count">0</span></header>
-        <table>
-          <thead><tr><th>方向</th><th>数量</th><th>开仓均价</th><th>标记价</th><th>未实现盈亏</th><th>保证金</th><th>强平价</th><th>杠杆</th></tr></thead>
-          <tbody id="positions"></tbody>
-        </table>
-      </section>
-      <section class="blk">
-        <header>当前委托 <span class="right" id="ord-count">0</span></header>
-        <table>
-          <thead><tr><th>时间</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th><th></th></tr></thead>
-          <tbody id="orders"></tbody>
-        </table>
-      </section>
-      <section class="blk">
-        <header>画线记录（数据坐标） <span class="right" id="d-count">0</span></header>
-        <pre class="dump" id="d-dump">[]</pre>
+      <!-- ④ 底部：持仓 / 当前委托 / 画线记录 -->
+      <section class="panel bottom-col">
+        <div class="bottom-tabs" id="bottom-tabs">
+          <button type="button" class="on" data-tab="positions">持仓 <span class="count" id="p-count">0</span></button>
+          <button type="button" data-tab="orders">当前委托 <span class="count" id="ord-count">0</span></button>
+          <button type="button" data-tab="drawings">画线记录 <span class="count" id="d-count">0</span></button>
+        </div>
+        <div class="bottom-body" id="bottom-body">
+          <div class="pane on" data-pane="positions">
+            <table>
+              <thead><tr><th>方向</th><th>数量</th><th>开仓均价</th><th>标记价</th><th>未实现盈亏</th><th>保证金</th><th>强平价</th><th>杠杆</th></tr></thead>
+              <tbody id="positions"></tbody>
+            </table>
+          </div>
+          <div class="pane" data-pane="orders">
+            <table>
+              <thead><tr><th>时间</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th><th></th></tr></thead>
+              <tbody id="orders"></tbody>
+            </table>
+          </div>
+          <div class="pane" data-pane="drawings">
+            <pre class="dump" id="d-dump">[]</pre>
+          </div>
+        </div>
       </section>
     </div>
-
-    <p class="lead">
-      一个页面把整套能力串起来：<code>createPaneStack</code> 的三块真副图（价格 / 成交量 / MACD 或 RSI，
-      严格对齐 + 联动）、<code>createOverlaySeries</code> 的均线、<code>createDrawingLayer</code> 的画线、
-      <code>createOhlcReadout</code> 的抬头、<code>project.ts</code> 的投影（最新价线 / 右轴价签 /
-      十字光标两侧标签都是拿它定位的 DOM）。盘口、下单、持仓、委托是页面自己的 HTML，图表库不管这些。
-      点盘口价格填单；限价挂单、市价成交、现价穿过限价单撮合、撤单都是真交互。
-    </p>
 
     <script src="../node_modules/ice-render/dist/index.umd.js"></script>
     <script src="../node_modules/@damoqiongqiu/ice-chart/dist/index.umd.js"></script>
@@ -546,7 +672,8 @@
         static TICKS_PER_BAR = 3;
         /** 标尺上滚轮一格的价格轴倍率（与引擎 `interaction.zoom.wheelFactor` 的默认值同口径）。 */
         static ZOOM_FACTOR = 1.2;
-        static CHART_HEIGHT = 540;
+        /** 图表区最小高度（真正的高度跟容器走，见 mount 里的 createPaneStack）。 */
+        static CHART_MIN_HEIGHT = 360;
         /**
          * 刻度标签的定宽字符数（三块 pane 的右轴预留宽度靠它拉平）。
          *
@@ -561,6 +688,8 @@
         static DEA_COLOR = '#3b82f6';
         static BASE_PRICE = 42000;
         /** 盘口每侧的档数（组件默认也是 10）。 */
+        /** 图表数字用的等宽字体（和 pane 栈的默认一致，主题里显式写一遍更稳）。 */
+        static PANE_FONT = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Roboto Mono', monospace";
         static LEVELS = 10;
         static EQUITY = 100000;
 
@@ -612,7 +741,8 @@
         fpsAt = 0;
         orderType = 'limit';
         marginMode = 'cross';
-        scheme = 'redUp';
+        /** 默认**涨绿跌红**（合约盘面的通行口径），「显示」面板里可切。 */
+        scheme = 'greenUp';
         indicators = { ma: true, ema: false, boll: false };
         /**
          * 图表类型：`candle` 蜡烛 / `hollow` 空心蜡烛 / `line` 折线 / `area` 面积。
@@ -697,6 +827,18 @@
         paneValue = null;
         /** 会话分隔线的几何签名（视窗一变就重建那几条线）。 */
         sessionSig = '';
+        /** 顶部跑马灯里的合成行情（演示数据，跟主图无关）。 */
+        tickers = [
+          { symbol: 'BTCUSDT', price: 82532.4, pct: 2.73, digits: 1 },
+          { symbol: 'ETHUSDT', price: 4201.6, pct: 4.22, digits: 2 },
+          { symbol: 'SOLUSDT', price: 232.14, pct: -1.35, digits: 2 },
+          { symbol: 'BNBUSDT', price: 728.9, pct: 3.52, digits: 1 },
+          { symbol: 'XRPUSDT', price: 0.7231, pct: -0.86, digits: 4 },
+          { symbol: 'DOGEUSDT', price: 0.1834, pct: 6.41, digits: 4 },
+        ];
+        /** 最新成交的环形缓冲（最近 30 笔）。 */
+        trades = [];
+        tradesSig = '';
         /** 主图画布的 CSS 尺寸。 */
         canvasBox = { width: 0, height: 0 };
         /** 每块 pane 相对**主图画布顶部**的偏移与高度（指针落在哪一块 + 横线画在哪一行）。 */
@@ -725,11 +867,11 @@
         }
 
         get upColor() {
-          return this.scheme === 'redUp' ? '#f04438' : '#12b76a';
+          return this.scheme === 'redUp' ? '#f6465d' : '#0ecb81';
         }
 
         get downColor() {
-          return this.scheme === 'redUp' ? '#12b76a' : '#f04438';
+          return this.scheme === 'redUp' ? '#0ecb81' : '#f6465d';
         }
 
         /** 当前周期（内置 + 自定义都要能取到，自定义周期走 allIntervals）。 */
@@ -813,7 +955,7 @@
 
         /** 主图叠加（在渲染窗口的真实 K 上算）。 */
         get overlaySeries() {
-          const spec = {};
+          const spec = { palette: ['#f0b90b', '#b57bff', '#848e9c', '#0ecb81', '#f6465d'] };
           if (this.indicators.ma) spec.ma = this.maPeriods.slice();
           if (this.indicators.ema) spec.emaPeriods = this.emaPeriods.slice();
           if (this.indicators.boll) spec.boll = { period: this.bollPeriod, multiplier: 2 };
@@ -1339,7 +1481,23 @@
               { id: 'indicator', weight: 2, option: () => this.indicatorPaneOption },
             ],
             // gap 用默认的 1px 分隔线（对齐主流终端的做法）
-            { height: TerminalPage.CHART_HEIGHT, axisLabelChars: TerminalPage.AXIS_CHARS }
+            // 主题：底色跟着面板走、网格极淡、轴标签用 muted 灰（对齐合约盘面的观感）
+            {
+              // 高度**不写死**：交给 pane 栈跟容器（#panes 是 flex 项）走 ——
+              // 写死 540 的话，窗口一窄/字体一换（不同浏览器换行不同）图表就超出容器被裁掉，
+              // 最下面那块的时间轴跑到容器外面，双击时间轴根本收不到事件（实测在 Firefox 上踩到）。
+              axisLabelChars: TerminalPage.AXIS_CHARS,
+              theme: {
+                backgroundColor: '#0b0e11',
+                textColor: '#eaecef',
+                subTextColor: '#848e9c',
+                axisLineColor: '#2b3139',
+                axisLabelColor: '#848e9c',
+                splitLineColor: '#1c2126',
+                fontFamily: TerminalPage.PANE_FONT,
+                fontSize: 11,
+              },
+            }
           );
           const priceChart = this.stack.chartOf('price');
           this.canvasEl = priceChart.ice.canvasEl;
@@ -1350,14 +1508,22 @@
           // 顺手先把左边补一段：否则第一次往左拖很快就贴到数据边界了
           this.ensureHistory();
           this.readout = ICETradingChart.createOhlcReadout(priceChart, { volume: {} });
+          // 首屏就把「最新成交」和顶部跑马灯铺上（否则要等第一次推送才有内容）
+          for (let i = 0; i < 12; i++) this.pushTrade();
+          this.renderTrades();
+          this.renderTickerStrip();
           this.drawing = ICETradingChart.createDrawingLayer(priceChart, {
             onChange: () => this.renderDrawings(),
           });
           this.mountChrome();
           this.book = ICETradingChart.createOrderBook(document.getElementById('order-book'), {
             levels: TerminalPage.LEVELS,
+            // 卖盘用跌色、买盘用涨色；价格与数量按合约盘面的口径格式化（千分位 + 三位小数）
             upColor: this.upColor,
             downColor: this.downColor,
+            priceFormat: (price) => TerminalPage.price(price),
+            sizeFormat: (size) => size.toFixed(3),
+            labels: { price: '价格 (USDT)', size: '数量 (SYN)', total: '合计 (SYN)' },
             onPickPrice: (price) => {
               document.getElementById('o-price').value = String(price);
               this.setHint(`已填入盘口价 ${TerminalPage.price(price)}`);
@@ -1487,6 +1653,7 @@
           document.getElementById('btn-latest').addEventListener('click', () => this.resumeFollow());
           this.bindToolbar();
           this.bindOrderForm();
+          this.bindBottomTabs();
           this.bindPointer();
           this.bindAxisGestures();
           this.bindKeyboard();
@@ -1885,30 +2052,43 @@
         }
 
         bindOrderForm() {
-          document.getElementById('order-tabs').addEventListener('click', (event) => {
+          const setMargin = (margin) => {
+            this.marginMode = margin;
+            for (const button of document.querySelectorAll('.order-top [data-margin]')) {
+              const on = button.getAttribute('data-margin') === margin;
+              button.classList.toggle('on', on);
+              button.classList.toggle('dim', !on);
+            }
+            this.renderPosition();
+            this.renderAccount();
+          };
+          const tabs = document.getElementById('order-tabs');
+          tabs.addEventListener('click', (event) => {
             const target = event.target;
             const type = target.getAttribute && target.getAttribute('data-type');
-            const margin = target.getAttribute && target.getAttribute('data-margin');
-            if (type) {
-              this.orderType = type;
-              for (const button of document.querySelectorAll('#order-tabs [data-type]')) {
-                button.classList.toggle('on', button === target);
-              }
-              document.getElementById('o-price').disabled = type === 'market';
-              document.getElementById('o-hint').textContent =
-                type === 'market' ? '市价单立即按盘口成交' : '限价单挂进委托表，现价触及时成交';
+            if (!type) return;
+            this.orderType = type;
+            for (const button of document.querySelectorAll('#order-tabs [data-type]')) {
+              button.classList.toggle('on', button === target);
             }
-            if (margin) {
-              this.marginMode = margin;
-              for (const button of document.querySelectorAll('#order-tabs [data-margin]')) {
-                button.classList.toggle('on', button === target);
-              }
-              this.renderPosition();
-            }
+            document.getElementById('o-price').disabled = type === 'market';
+            document.getElementById('o-hint').textContent =
+              type === 'market' ? '市价单立即按盘口成交' : '限价单挂进委托表，现价触及时成交';
           });
+          document.querySelector('.order-top').addEventListener('click', (event) => {
+            const margin = event.target.getAttribute && event.target.getAttribute('data-margin');
+            if (margin) setMargin(margin);
+          });
+          document.getElementById('o-best').addEventListener('click', () => {
+            document.getElementById('o-price').value = String(TerminalPage.round2(this.price));
+            this.setHint(`已填入最新价 ${TerminalPage.price(this.price)}`);
+          });
+          this.buildPctSlider();
           document.getElementById('o-lev').addEventListener('input', (event) => {
             document.getElementById('o-lev-text').textContent = `${event.target.value}×`;
+            document.getElementById('o-lev-pill').textContent = `${event.target.value}x`;
             this.renderPosition();
+            this.renderAccount();
           });
           document.getElementById('o-tp').addEventListener('change', (event) => {
             document.getElementById('o-tpsl').style.display = event.target.checked ? 'grid' : 'none';
@@ -2606,6 +2786,10 @@
             this.ensureFutureSlots();
           }
           this.matchOrders();
+          // 最新成交 + 顶部跑马灯（演示：每次推送记一笔，别的品种自己走）
+          this.pushTrade();
+          this.renderTrades();
+          this.stepTickers();
           // 跟盘时把窗口重新钉到最后 count 根；用户自己动过视窗（follow=false）就原样保留
           this.stack.refresh({ animate: false, preserveView: true });
           if (this.follow) this.pinToLatest();
@@ -2643,6 +2827,11 @@
           });
         }
 
+        /**
+         * 交易对抬头（对齐合约交易所的那一排）：
+         * 左边是符号 + 标记价 + 24h 涨跌，右边一排「标签 / 数值」——标记价格、指数价格、
+         * 资金费率与倒计时、24h 高/低、24h 量/额。涨跌相关的数值直接上色。
+         */
         renderTopbar() {
           const change = this.price - this.open24;
           const pct = this.open24 ? (change / this.open24) * 100 : 0;
@@ -2651,15 +2840,34 @@
           last.textContent = TerminalPage.price(this.price);
           last.style.color = color;
           const chg = document.getElementById('t-chg');
-          chg.textContent = `${ICETradingChart.formatSigned(TerminalPage.round2(change))} (${TerminalPage.pct(pct)})`;
+          chg.textContent = `${ICETradingChart.formatSigned(TerminalPage.round2(change))} ${TerminalPage.pct(pct)}`;
           chg.style.color = color;
-          document.getElementById('t-hilo').textContent =
-            `${TerminalPage.price(this.high24)} / ${TerminalPage.price(this.low24)}`;
+          // 标记价 = 最新价；指数价用一个略偏的合成值（演示用，真实的指数价来自现货篮子）
+          document.getElementById('t-mark').textContent = TerminalPage.price(this.price);
+          document.getElementById('t-index').textContent = TerminalPage.price(this.indexPrice());
+          document.getElementById('t-high').textContent = TerminalPage.price(this.high24);
+          document.getElementById('t-low').textContent = TerminalPage.price(this.low24);
           document.getElementById('t-vol').textContent = ICETradingChart.formatVolume(this.volume24);
+          document.getElementById('t-amount').textContent = ICETradingChart.formatVolume(this.volume24 * this.price);
+          this.renderFunding();
+        }
+
+        /** 资金费率与倒计时（8 小时结算一次；演示里费率固定 0.0100%）。 */
+        renderFunding() {
           const remaining = 8 * 3600e3 - (Date.now() % (8 * 3600e3));
           const hours = Math.floor(remaining / 3600e3);
           const minutes = Math.floor((remaining % 3600e3) / 60e3);
-          document.getElementById('t-funding').textContent = `0.0100% / ${TerminalPage.pad2(hours)}:${TerminalPage.pad2(minutes)}`;
+          const seconds = Math.floor((remaining % 60e3) / 1000);
+          const rate = document.getElementById('t-funding');
+          rate.textContent = '0.0100%';
+          rate.style.color = this.upColor;
+          document.getElementById('t-fund-countdown').textContent =
+            `${TerminalPage.pad2(hours)}:${TerminalPage.pad2(minutes)}:${TerminalPage.pad2(seconds)}`;
+        }
+
+        /** 指数价：拿最新价按时间做一个 0.01% 量级的偏移，只为让抬头那一排有区别。 */
+        indexPrice() {
+          return TerminalPage.round2(this.price * (1 + Math.sin(Date.now() / 60000) * 0.0001));
         }
 
         renderPosition() {
@@ -2993,6 +3201,142 @@
           this.renderReadout();
         }
 
+        /**
+         * 下单数量下方的百分比滑杆（25% 一档的菱形刻度 + 可拖动的手柄）。
+         *
+         * 口径：`数量 = 可用保证金 × 百分比 × 杠杆 ÷ 价格` —— 与「按可用保证金的百分比开仓」一致。
+         */
+        buildPctSlider() {
+          const host = document.getElementById('o-pct');
+          if (!host) return;
+          const stops = [0, 25, 50, 75, 100];
+          host.innerHTML =
+            '<div class="track"></div>' +
+            stops
+              .map((pct) => `<span class="tick" data-pct="${pct}" style="left:calc(5px + ${pct}% - ${pct * 0.1}px)"></span>`)
+              .join('');
+          const apply = (pct) => {
+            for (const tick of host.querySelectorAll('.tick')) {
+              tick.classList.toggle('on', Number(tick.getAttribute('data-pct')) === pct);
+            }
+            this.applyPct(pct);
+          };
+          host.addEventListener('click', (event) => {
+            const tick = event.target.closest ? event.target.closest('[data-pct]') : null;
+            if (tick) apply(Number(tick.getAttribute('data-pct')));
+          });
+          // 拖动：按住手柄（或任意位置）横向拖，按最近的档位吸附
+          const drag = (event) => {
+            const rect = host.getBoundingClientRect();
+            const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
+            const pct = Math.round(ratio * 4) * 25;
+            apply(pct);
+          };
+          host.addEventListener('pointerdown', (event) => {
+            host.setPointerCapture(event.pointerId);
+            drag(event);
+          });
+          host.addEventListener('pointermove', (event) => {
+            if (event.buttons) drag(event);
+          });
+        }
+
+        /** 把百分比换算成数量填进表单（可用保证金 × 百分比 × 杠杆 ÷ 价格）。 */
+        applyPct(pct) {
+          const price = this.orderType === 'market' ? this.price : Number(document.getElementById('o-price').value) || this.price;
+          const leverage = Number(document.getElementById('o-lev').value) || 1;
+          const notional = (TerminalPage.EQUITY * pct) / 100 * leverage;
+          const size = price > 0 ? TerminalPage.round2(notional / price) : 0;
+          document.getElementById('o-size').value = String(size);
+          const hint = `按可用保证金的 ${pct}% 填数量 ${size} SYN（${leverage}× · 名义 ${ICETradingChart.formatVolume(notional)} USDT）`;
+          document.getElementById('o-hint').textContent = hint;
+          this.setHint(hint);
+        }
+
+        /** 账户面板：保证金比率 / 维持保证金 / 保证金余额（跟着持仓与杠杆走）。 */
+        renderAccount() {
+          const leverage = Number(document.getElementById('o-lev').value) || 1;
+          const position = this.position;
+          const margin = position ? this.positionMargin() : 0;
+          const maintenance = position ? Math.abs(position.size * this.price) * 0.005 : 0;
+          const ratio = TerminalPage.EQUITY > 0 ? (maintenance / TerminalPage.EQUITY) * 100 : 0;
+          document.getElementById('acct-ratio').textContent = `${ratio.toFixed(2)}%`;
+          document.getElementById('acct-maint').textContent = `${maintenance.toFixed(4)} USDT`;
+          document.getElementById('acct-balance').textContent = `${ICETradingChart.formatVolume(TerminalPage.EQUITY - margin)} USDT`;
+          document.getElementById('o-avail').textContent = `${ICETradingChart.formatVolume(TerminalPage.EQUITY - margin)} USDT`;
+          const pill = document.getElementById('o-lev-pill');
+          if (pill) pill.textContent = `${leverage}x`;
+        }
+
+        /** 行情跑马灯：一排交易对 + 涨跌（演示数据自己走，跟主图无关）。 */
+        renderTickerStrip() {
+          const strip = document.getElementById('ticker-strip');
+          if (!strip) return;
+          if (this.tickerFrame !== this.tickerFrame) this.tickerFrame = 0;
+          strip.innerHTML = this.tickers
+            .map((item) => {
+              const cls = item.pct >= 0 ? 'up' : 'down';
+              return `<span class="tk ${cls}">${item.symbol} <b>${item.pct >= 0 ? '+' : ''}${item.pct.toFixed(2)}%</b> <i>${item.price.toFixed(item.digits)}</i></span>`;
+            })
+            .join('');
+        }
+
+        /** 跑马灯里的合成行情：每个 tick 轻微随机游走，视觉上是「别的品种也在动」。 */
+        stepTickers() {
+          for (const item of this.tickers) {
+            item.pct = Math.max(-30, Math.min(60, item.pct + (Math.random() - 0.5) * 0.08));
+            item.price = Math.max(0.0001, item.price * (1 + (Math.random() - 0.5) * 0.0008));
+          }
+          this.renderTickerStrip();
+        }
+
+        /** 最新成交：每次推送记一笔（价格 / 数量 / 时间），只留最近 30 笔。 */
+        pushTrade() {
+          const now = new Date();
+          this.trades.push({
+            price: TerminalPage.round2(this.price),
+            size: TerminalPage.round2(0.002 + Math.random() * 0.6),
+            at: `${TerminalPage.pad2(now.getHours())}:${TerminalPage.pad2(now.getMinutes())}:${TerminalPage.pad2(now.getSeconds())}`,
+            up: Math.random() > 0.5,
+          });
+          if (this.trades.length > 30) this.trades.splice(0, this.trades.length - 30);
+        }
+
+        /** 渲染最新成交（最新的在最上面）。 */
+        renderTrades() {
+          const body = document.getElementById('trades');
+          if (!body) return;
+          const signature = this.trades.map((trade) => `${trade.price}:${trade.size}:${trade.at}`).join('|');
+          if (signature === this.tradesSig) return;
+          this.tradesSig = signature;
+          body.innerHTML = this.trades
+            .slice(-14)
+            .reverse()
+            .map(
+              (trade) =>
+                `<tr><td class="${trade.up ? 'up' : 'down'}">${TerminalPage.price(trade.price)}</td><td>${trade.size.toFixed(3)}</td><td>${trade.at}</td></tr>`
+            )
+            .join('');
+        }
+
+        /** 底部选项卡（持仓 / 当前委托 / 画线记录）。 */
+        bindBottomTabs() {
+          document.getElementById('bottom-tabs').addEventListener('click', (event) => {
+            const button = event.target.closest ? event.target.closest('[data-tab]') : null;
+            if (!button) return;
+            const name = button.getAttribute('data-tab');
+            for (const item of document.querySelectorAll('#bottom-tabs [data-tab]')) {
+              item.classList.toggle('on', item === button);
+            }
+            for (const pane of document.querySelectorAll('#bottom-body .pane')) {
+              pane.classList.toggle('on', pane.getAttribute('data-pane') === name);
+            }
+          });
+          for (const button of document.querySelectorAll('.account .acct-actions button')) {
+            button.addEventListener('click', () => this.setHint(`${button.textContent}：演示页未接入资金操作`));
+          }
+        }
+
         /** 现价穿过限价单就成交（简化撮合）。 */
         matchOrders() {
           const pending = [];
@@ -3070,6 +3414,8 @@
             document.getElementById('s-pushed').textContent = String(this.pushed);
             const last = this.candles[this.candles.length - 1];
             document.getElementById('s-next').textContent = this.displayLabel(this.keyOf(last.at + this.interval.ms));
+            this.renderFunding();
+            this.renderAccount();
             this.frames = 0;
             this.fpsAt = now;
           }

@@ -31,10 +31,15 @@ export interface OrderBookOptions {
   priceFormat?: (price: number) => string;
   /** 数量格式化，默认两位小数。 */
   sizeFormat?: (size: number) => string;
-  /** 卖盘色（跟随应用的涨色）。 */
-  upColor?: string;
-  /** 买盘色（跟随应用的跌色）。 */
+  /**
+   * **跌色**（卖盘用）。合约盘面的惯例是「卖盘偏跌、买盘偏涨」：
+   * 涨绿跌红的盘面上卖盘就是红的、买盘是绿的；换成涨红跌绿时两边跟着翻。
+   */
   downColor?: string;
+  /** **涨色**（买盘用）。 */
+  upColor?: string;
+  /** 表头三个列名，默认「价格 / 数量 / 合计」。 */
+  labels?: { price?: string; size?: string; total?: string };
   /** 是否画深度条，默认 true。 */
   showDepth?: boolean;
   /** 点击某一档的回调。 */
@@ -64,17 +69,24 @@ const STYLE_ID = 'ice-trading-order-book-style';
 
 const STYLE = `
 .ice-book { font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.ice-book-row { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 1px 10px; cursor: pointer; }
+.ice-book-head {
+  display: grid; grid-template-columns: 1fr 1fr 1.05fr; gap: 4px; padding: 0 10px 2px;
+  color: rgba(132, 142, 156, 0.9); font-size: 10px;
+}
+.ice-book-head span:nth-child(2), .ice-book-head span:nth-child(3) { text-align: right; }
+.ice-book-row { position: relative; display: grid; grid-template-columns: 1fr 1fr 1.05fr; gap: 4px; padding: 1px 10px; cursor: pointer; }
 .ice-book-row:hover { background: rgba(255, 255, 255, 0.04); }
 .ice-book-depth { position: absolute; top: 1px; bottom: 1px; right: 0; z-index: 0; }
-.ice-book-px, .ice-book-sz { position: relative; z-index: 1; }
-.ice-book-sz { text-align: right; opacity: 0.72; }
+.ice-book-px, .ice-book-sz, .ice-book-tt { position: relative; z-index: 1; }
+.ice-book-sz, .ice-book-tt { text-align: right; }
+.ice-book-sz { opacity: 0.78; }
+.ice-book-tt { opacity: 0.92; }
 .ice-book-mid {
   display: flex; align-items: baseline; gap: 8px; padding: 4px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.ice-book-mid b { font-size: 15px; font-weight: 600; }
+.ice-book-mid b { font-size: 17px; font-weight: 600; }
 .ice-book-mid span { font-size: 10px; opacity: 0.6; }
 .ice-book-empty { padding: 6px 10px; opacity: 0.55; }
 `;
@@ -93,6 +105,7 @@ interface Row {
   depth: HTMLElement;
   price: HTMLElement;
   size: HTMLElement;
+  total: HTMLElement;
 }
 
 function defaultPriceFormat(value: number): string {
@@ -113,13 +126,15 @@ function createRow(side: 'ask' | 'bid', onPick: (price: number, side: 'ask' | 'b
   price.className = 'ice-book-px';
   const size = document.createElement('span');
   size.className = 'ice-book-sz';
-  root.append(depth, price, size);
+  const total = document.createElement('span');
+  total.className = 'ice-book-tt';
+  root.append(depth, price, size, total);
   root.addEventListener('click', () => {
     const raw = root.dataset.price;
     if (raw === undefined) return;
     onPick(Number(raw), side);
   });
-  return { root, depth, price, size };
+  return { root, depth, price, size, total };
 }
 
 /**
@@ -138,8 +153,12 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
   const sizeFormat = options.sizeFormat || defaultSizeFormat;
   const pick = options.onPickPrice || (() => undefined);
 
+  const text = { price: '价格', size: '数量', total: '合计', ...(options.labels || {}) };
   const root = document.createElement('div');
   root.className = 'ice-book';
+  const head = document.createElement('div');
+  head.className = 'ice-book-head';
+  head.innerHTML = `<span>${text.price}</span><span>${text.size}</span><span>${text.total}</span>`;
   const askSide = document.createElement('div');
   askSide.className = 'ice-book-side';
   askSide.dataset.side = 'ask';
@@ -151,7 +170,7 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
   const bidSide = document.createElement('div');
   bidSide.className = 'ice-book-side';
   bidSide.dataset.side = 'bid';
-  root.append(askSide, midRow, bidSide);
+  root.append(head, askSide, midRow, bidSide);
   container.appendChild(root);
 
   // 卖盘从上到下是「最远 → 最优」，所以第 i 行显示的是 asks[levels-1-i]
@@ -166,14 +185,22 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
     bidRows.push(bid);
   }
 
-  let upColor = options.upColor || '#f04438';
-  let downColor = options.downColor || '#12d18d';
+  let upColor = options.upColor || '#0ecb81';
+  let downColor = options.downColor || '#f6465d';
   let lastMid: number | null = null;
   let lastSpread: number | null = null;
   let signature = '';
 
   const paintSide = (rows: Row[], levelsData: OrderBookLevel[], side: 'ask' | 'bid', maxSize: number) => {
-    const color = side === 'ask' ? upColor : downColor;
+    // 卖盘 = 跌色、买盘 = 涨色（合约盘面的通行口径：卖盘偏向下跌的那一侧）
+    const color = side === 'ask' ? downColor : upColor;
+    // 「合计」从**最优价**往外累加：`levelsData[0]` 就是最优价
+    const totals: number[] = [];
+    let running = 0;
+    for (const level of levelsData) {
+      running += isFinite(level.size) ? level.size : 0;
+      totals.push(running);
+    }
     for (let i = 0; i < rows.length; i += 1) {
       // 卖盘倒序：数组尾部（最优价）贴着中间价
       const level = side === 'ask' ? levelsData[levelsData.length - 1 - i] : levelsData[i];
@@ -188,6 +215,9 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
       row.price.textContent = priceFormat(level.price);
       row.price.style.color = color;
       row.size.textContent = sizeFormat(level.size);
+      // 行 i 对应 `levelsData` 的哪一项：卖盘倒着来，买盘顺着来
+      const levelIndex = side === 'ask' ? levelsData.length - 1 - i : i;
+      row.total.textContent = sizeFormat(totals[levelIndex]);
       row.depth.style.width = showDepth ? `${Math.max(2, Math.round((level.size / maxSize) * 100))}%` : '0';
       row.depth.style.background = withAlpha(color, 0.13);
     }

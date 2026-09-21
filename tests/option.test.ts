@@ -107,8 +107,9 @@ describe('toTradingOption', () => {
     const option = toTradingOption(CANDLE, { pricePrecision: 2 });
     const axis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis!;
     const format = axis.formatter as (value: unknown) => string;
-    expect(format(42300)).toBe('42300.00');
-    expect(format(42300.5)).toBe('42300.50');
+    // 固定两位小数 + 千分位（报价口径）
+    expect(format(42300)).toBe('42,300.00');
+    expect(format(42300.5)).toBe('42,300.50');
 
     // 提示框里的四个价同口径（同一份 `formatPrice`）
     const formatter = option.tooltip!.formatter as any;
@@ -116,6 +117,7 @@ describe('toTradingOption', () => {
       items: [{ seriesType: 'candlestick', data: { x: 'D1', o: 100, c: 110, l: 95, h: 115 }, color: '#f00' }],
     });
     expect(rows.rows.map((row: any) => row.value)).toEqual(['100.00', '115.00', '95.00', '110.00']);
+    expect(formatPrice(1234567.891, 2)).toBe('1,234,567.89');
   });
 
   it('pricePrecision：不给就保持引擎的自适应写法（整数刻度写整数）', () => {
@@ -160,11 +162,12 @@ describe('toTradingOption', () => {
 });
 
 describe('formatPrice', () => {
-  it('给了小数位就固定位数（不去尾随 0）', () => {
-    expect(formatPrice(42300, 2)).toBe('42300.00');
-    expect(formatPrice(42300.5, 2)).toBe('42300.50');
-    expect(formatPrice(42300.456, 2)).toBe('42300.46');
-    expect(formatPrice(42300.456, 0)).toBe('42300');
+  it('给了小数位就固定位数（不去尾随 0），并加千分位', () => {
+    expect(formatPrice(42300, 2)).toBe('42,300.00');
+    expect(formatPrice(42300.5, 2)).toBe('42,300.50');
+    expect(formatPrice(42300.456, 2)).toBe('42,300.46');
+    expect(formatPrice(42300.456, 0)).toBe('42,300');
+    expect(formatPrice(-1234.5, 2)).toBe('-1,234.50');
   });
 
   it('不给小数位时保持老口径（最多 6 位、去尾随 0）', () => {
