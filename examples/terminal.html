@@ -364,6 +364,17 @@
         /** 超限这么多还没能裁（视窗长期停在最左边）就硬裁：内存优先于视窗稳定。 */
         static HISTORY_HARD_OVER = 2000;
         /**
+         * 最新一根之后留多少个**未来空位**。
+         *
+         * 为什么要有：视窗贴到最新数据后，往左拖（内容跟着手往左）本该继续动，
+         * 主流看盘软件在那里留的是**空白**。类目轴的窗口只能落在已存在的类目上，
+         * 所以空白得靠「没有价量的占位棒」撑出来（`readOhlc` 读不出四个价 → 不画）。
+         * 600 根 ≈ 五屏，够拖；拖得更远时 `extendFutureSlots()` 再补。
+         */
+        static FUTURE_SLOTS = 600;
+        /** 未来空位的上限（再往左拖就撞墙了，但那已经是二十屏之外）。 */
+        static FUTURE_MAX = 2400;
+        /**
          * 准星标尺色：竖线（引擎画）与横线（`.hline`）必须同色，否则十字会看起来是断的。
          * CSS 侧是 `--ruler`，改这里记得一起改。
          */
@@ -470,8 +481,8 @@
         bookData = { asks: [], bids: [] };
         /** 指针位置：`{ pane, x, y }`，`x`/`y` 是**那一块 pane 画布内**的坐标；不在图上时为 null。 */
         pointer = null;
-        /** 是否正在拖动平移（对齐引擎的 3px 死区，见 bindPanCursor）。 */
-        panning = false;
+        /** 是否按住主键（只用来驱动光标，见 bindPanCursor / syncCursor）。 */
+        pressed = false;
         /** 最近一次写下去的光标值（避免每次 pointermove 都写 style）。 */
         cursor = '';
         /** 平移 / 缩放的量程重算（rAF 节流句柄）。 */
@@ -479,6 +490,8 @@
         /** `visibleRange()` 的缓存（key = 总量 + 视窗两端 + 周期）。 */
         rangeKey = '';
         rangeValue = null;
+        /** 最新一根之后的未来空位（视窗往左越过最新数据时看到的空白）。 */
+        futureSlots = [];
         /**
          * 是否**跟盘**：新的 K 出来时把窗口钉在最后 `count` 根上。
          *
@@ -543,13 +556,46 @@
           };
         }
 
-        /** 主图叠加（在全量数据上算，尾部裁到可见段）。 */
+        /**
+         * 指标的数据源：**只喂真实 K**。
+         *
+         * 为什么不能直接拿 `candleSeries`（它带着未来空位）：指标是顺着收盘价一路算下去的，
+         * 空位没有 OHLC，`closeSeries` 会**沿用上一根的收盘** —— 于是均线 / MACD 会在
+         * 未来那段空位上拉出一条平线，看着像「指标跑到未来去了」。空位只该给类目轴占位，
+         * 不该进指标（K 线自己没这个问题：没有 OHLC 就什么都不画）。
+         */
+        get indicatorSource() {
+          const { from, to } = this.renderSlice();
+          return { ...this.candleSeries, data: this.poolSlice(from, Math.min(to, this.candles.length)) };
+        }
+
+        /**
+         * 副图的「未来空位锚点」：一串只带 x、**什么都不画**的柱子。
+         *
+         * 副图（MACD / RSI）的指标系列只到最后一根真实 K 为止 —— 这是对的（见 `indicatorSource`）。
+         * 但类目轴是按「这一格系列里出现过的 x」建域的：副图里没有未来那串类目，
+         * 三块 pane 就**对不齐**了 —— 联动过来的窗口在副图这儿找不到右端 key，
+         * 引擎的 clamp 只能让它停在老窗口上，于是「K 线已经是空白区了，副图还在画老数据」
+         * （实测：MACD 图照旧画满 03:00~13:00，K 线那边早就是未来）。
+         * 所以给副图挂一个占位系列把类目补齐：`type: 'bar'` + `value: null` 是
+         * **有类目、不画**的那一格（量图处理空位用的就是这一手，实测像素为 0）。
+         */
+        get blankAnchor() {
+          const { to } = this.renderSlice();
+          const real = this.candles.length;
+          if (to <= real) return [];
+          const data = [];
+          for (const slot of this.poolSlice(real, to)) data.push({ x: slot.x, value: null });
+          return data.length ? [{ id: 'k__blank', type: 'bar', data }] : [];
+        }
+
+        /** 主图叠加（在渲染窗口的真实 K 上算）。 */
         get overlaySeries() {
           const spec = {};
           if (this.indicators.ma) spec.ma = [7, 25];
           if (this.indicators.ema) spec.emaPeriods = [12, 26];
           if (this.indicators.boll) spec.boll = { period: 20, multiplier: 2 };
-          return ICETradingChart.createOverlaySeries(this.candleSeries, spec);
+          return ICETradingChart.createOverlaySeries(this.indicatorSource, spec);
         }
 
         get priceOption() {
@@ -578,6 +624,14 @@
         }
 
         get volumeOption() {
+          // 视窗里一根能读出量的 K 都没有时 `buildVolumeSeries` 返回 **null**
+          // （视窗停在「未来空位」上就是这个情况），空系列要整个不挂 —— 挂 null 上去
+          // 引擎会当成「series[0] 缺少 type」直接抛错（实测踩到）。
+          const volumeSeries = ICETradingChart.buildVolumeSeries(this.candleSeries, {
+            axisIndex: 0,
+            upColor: this.upColor,
+            downColor: this.downColor,
+          });
           return {
             legend: { show: false },
             animation: { enabled: false },
@@ -596,19 +650,13 @@
               max: this.volumeAxisMax,
               formatter: (value) => ICETradingChart.formatVolume(Number(value)),
             },
-            series: [
-              ICETradingChart.buildVolumeSeries(this.candleSeries, {
-                axisIndex: 0,
-                upColor: this.upColor,
-                downColor: this.downColor,
-              }),
-            ],
+            series: volumeSeries ? [volumeSeries] : [],
           };
         }
 
         get indicatorPaneOption() {
           if (this.paneKind === 'rsi') {
-            const built = ICETradingChart.createRsiPaneOption(this.candleSeries, { period: 14 });
+            const built = ICETradingChart.createRsiPaneOption(this.indicatorSource, { period: 14 });
             return {
               legend: { show: false },
               animation: { enabled: false },
@@ -618,11 +666,11 @@
               xAxis: { type: 'category', formatter: (value) => this.displayLabel(value) },
               margin: { top: 2, right: 16, bottom: 0, left: 12 },
               yAxis: { position: 'right', tickCount: 3, nice: false, min: 0, max: 100 },
-              series: built.series,
+              series: built.series.concat(this.blankAnchor),
               annotation: built.annotation,
             };
           }
-          const built = ICETradingChart.createMacdPaneOption(this.candleSeries, {
+          const built = ICETradingChart.createMacdPaneOption(this.indicatorSource, {
             upColor: this.upColor,
             downColor: this.downColor,
           });
@@ -643,7 +691,7 @@
               min: range ? range.min : undefined,
               max: range ? range.max : undefined,
             },
-            series: built.series,
+            series: built.series.concat(this.blankAnchor),
           };
         }
 
@@ -696,7 +744,7 @@
          * 缓存的 key 用「总量 + 视窗两端 + 周期」，这几个都是现成的、不用扫数组。
          */
         visibleRange() {
-          const total = this.candles.length;
+          const total = this.candles.length + this.futureSlots.length;
           const chart = this.stack ? this.stack.chartOf('price') : null;
           const domain = chart ? chart.getDomain('x') : null;
           const first = domain && domain.length ? domain[0] : '';
@@ -706,13 +754,13 @@
           let from = -1;
           let to = -1;
           if (domain && domain.length >= 2) {
-            from = this.indexOfKey(this.candles, first);
-            to = this.indexOfKey(this.candles, last);
+            from = this.poolIndexOf(first);
+            to = this.poolIndexOf(last);
           }
           if (!(from >= 0 && to > from)) {
-            // 首帧图还没建好（option 要先于图表求值）或窗口取不到：按默认窗口（最后 count 根）算
-            from = Math.max(0, total - this.interval.count);
-            to = total - 1;
+            // 首帧图还没建好（option 要先于图表求值）或窗口取不到：退回「最后 count 根真实 K」
+            to = this.candles.length - 1;
+            from = Math.max(0, to - this.interval.count + 1);
           }
           this.rangeKey = key;
           this.rangeValue = { from, to };
@@ -722,7 +770,7 @@
         /** 当前**可见窗口**里的那一段（量程、标签写法都按它算）。 */
         visibleCandles() {
           const { from, to } = this.visibleRange();
-          return this.candles.slice(from, to + 1);
+          return this.poolSlice(from, to + 1);
         }
 
         visibleCount() {
@@ -730,16 +778,81 @@
           return to - from + 1;
         }
 
-        /** 交给图表的渲染窗口（视窗左右各多带 `RENDER_MARGIN` 根）。 */
+        /**
+         * 维护「未来的空位」。
+         *
+         * 时间槽**锚在绝对时刻**上：新 K 进来时把已经变成真实 K 的那几个从前面去掉、
+         * 末尾再补，**已经存在的槽 key 不变** —— 否则视窗停在未来时会被新 K 顶得每根跳一下。
+         */
+        ensureFutureSlots() {
+          const interval = this.interval;
+          const newest = this.candles[this.candles.length - 1];
+          if (!newest) return;
+          while (this.futureSlots.length && this.futureSlots[0].at <= newest.at) this.futureSlots.shift();
+          let at = this.futureSlots.length ? this.futureSlots[this.futureSlots.length - 1].at : newest.at;
+          while (this.futureSlots.length < TerminalPage.FUTURE_SLOTS) {
+            at += interval.ms;
+            this.futureSlots.push({ at, x: this.keyOf(at) });
+          }
+        }
+
+        /** 视窗拖到未来空位深处时再补一段（上限 `FUTURE_MAX`）。 */
+        extendFutureSlots() {
+          const newest = this.candles[this.candles.length - 1];
+          if (!newest || this.futureSlots.length >= TerminalPage.FUTURE_MAX) return;
+          const vis = this.visibleCandles();
+          const lastAt = vis.length ? vis[vis.length - 1].at : newest.at;
+          const used = Math.round((lastAt - newest.at) / this.interval.ms);
+          if (used < this.futureSlots.length - TerminalPage.HISTORY_PREFETCH) return; // 前面还够
+          const target = Math.min(TerminalPage.FUTURE_MAX, this.futureSlots.length + TerminalPage.HISTORY_CHUNK);
+          let at = this.futureSlots[this.futureSlots.length - 1].at;
+          while (this.futureSlots.length < target) {
+            at += this.interval.ms;
+            this.futureSlots.push({ at, x: this.keyOf(at) });
+          }
+        }
+
+        /**
+         * 池子 = **真实数据 + 未来空位**（按下标取一段）。
+         *
+         * 视窗的下标一律按池子算：视窗落在未来空位上时，`from` 会比真实数据的长度还大，
+         * 所以不能直接拿 `this.candles` 当全集。
+         */
+        poolSlice(from, to) {
+          const real = this.candles.length;
+          const out = this.candles.slice(Math.max(0, from), Math.min(real, to));
+          const slotFrom = Math.max(0, from - real);
+          const slotTo = Math.min(this.futureSlots.length, to - real);
+          for (let i = slotFrom; i < slotTo; i++) out.push(this.futureSlots[i]);
+          return out;
+        }
+
+        /** 类目 key → 池子下标。 */
+        poolIndexOf(key) {
+          for (let i = 0; i < this.candles.length; i++) if (this.candles[i].x === key) return i;
+          for (let i = 0; i < this.futureSlots.length; i++) if (this.futureSlots[i].x === key) return this.candles.length + i;
+          return -1;
+        }
+
+        /**
+         * 交给图表的渲染窗口（视窗左右各多带 `RENDER_MARGIN` 根）。
+         *
+         * 两个都要命：
+         * - **跟盘时一定把最右端带上**：`pinToLatest()` 是按「全量历史最后 count 根的 key」
+         *   去钉窗口的，如果那几根不在图表当前那段数据里，引擎的 clamp 找不到 key，
+         *   会把窗口解析成「整段数据」——「回到最新」就会飞进老历史里（实测踩到）。
+         * - **一定带上最后 `count` 根真实 K**：视窗拖进未来空位深处时，这一段里可能一根
+         *   真实 K 都没有，量程就没了依据 —— 实测价格轴掉到 `[-148, 451]`、量图掉到
+         *   `[0, 1]`、副图掉到 `[-1, 1]`（MACD 的收盘价序列退化成了一串 0）。
+         *   只是把真实 K 带进**数据**里（视窗之外的那些类目不会画出来），量程就稳住了。
+         */
         renderSlice() {
           const { from, to } = this.visibleRange();
-          const total = this.candles.length;
-          // 跟盘时**一定把最右端带上**：`pinToLatest()` 是按「全量历史最后 count 根的 key」
-          // 去钉窗口的，如果那几根不在图表当前那段数据里，引擎的 clamp 找不到 key，
-          // 会把窗口解析成「整段数据」——「回到最新」就会飞进老历史里（实测踩到）。
+          const total = this.candles.length + this.futureSlots.length;
+          const anchor = Math.max(0, this.candles.length - this.interval.count);
           const hi = this.follow ? total : to + 1 + TerminalPage.RENDER_MARGIN;
           return {
-            from: Math.max(0, from - TerminalPage.RENDER_MARGIN),
+            from: Math.max(0, Math.min(from - TerminalPage.RENDER_MARGIN, anchor)),
             to: Math.min(total, hi),
           };
         }
@@ -764,7 +877,7 @@
          */
         get seriesCandles() {
           const { from, to } = this.renderSlice();
-          return from === 0 && to === this.candles.length ? this.candles : this.candles.slice(from, to);
+          return this.poolSlice(from, to);
         }
 
         /**
@@ -825,7 +938,9 @@
           const over = this.candles.length - TerminalPage.HISTORY_MAX;
           if (over <= 0) return;
           const { from } = this.visibleRange();
-          const spare = Math.max(0, from - TerminalPage.HISTORY_PREFETCH);
+          // 两个约束：别裁进视窗左侧；也**永远保留最新 count 根**（`pinToLatest` 要靠它们）
+          const keepNewest = Math.max(0, this.candles.length - this.interval.count);
+          const spare = Math.max(0, Math.min(from - TerminalPage.HISTORY_PREFETCH, keepNewest));
           const drop = over > TerminalPage.HISTORY_HARD_OVER ? over : Math.min(over, spare);
           if (drop > 0) this.candles.splice(0, drop);
         }
@@ -852,11 +967,6 @@
           // silent：这是页面自己钉的窗口，不必再往外抛 pan/zoom 事件把量程重算又跑一遍
           chart.silent(() => chart.setDomain('x', next, 'api'));
           this.stack.syncDomains();
-        }
-
-        indexOfKey(rows, key) {
-          for (let i = 0; i < rows.length; i++) if (rows[i].x === key) return i;
-          return -1;
         }
 
         /** 所有可选周期（内置 + 自定义）。 */
@@ -891,6 +1001,8 @@
           for (let i = 0; i < history; i++) {
             this.candles.push(this.makeBar(now - (history - 1 - i) * interval.ms));
           }
+          this.futureSlots = [];
+          this.ensureFutureSlots();
         }
 
         makeBar(at) {
@@ -1381,32 +1493,25 @@
         }
 
         /**
-         * 拖动状态 → 光标。引擎完全不碰 cursor，这块归页面。
+         * 光标：按住主键 → 小手；抬起 → 收回。
          *
-         * 两个细节：
-         * - 拖动起点要跟引擎**对齐 3px 死区**（`updateDrag` 里小于 3px 不算拖动）。
-         *   在 pointerdown 就换光标的话，一次普通单击也会让光标闪一下。
+         * 引擎完全不碰 cursor，这块归页面。两个细节：
+         * - **按下就变**，不等移动。引擎的 `updateDrag` 有 3px 死区（小于 3px 不算拖动），
+         *   光标跟它对齐的话，用户按住拖了 1~2px 时看着毫无反馈；用户要的也是「按下就变手」。
          * - 画线工具武装时这一片归画线层（它的 SVG 会把 `pointer-events` 打开并给
          *   `crosshair`），那不是平移，不参与。
          */
         bindPanCursor() {
           const host = document.getElementById('panes');
-          let origin = null;
           const finish = () => {
-            origin = null;
-            if (!this.panning) return;
-            this.panning = false;
+            if (!this.pressed) return;
+            this.pressed = false;
             this.syncCursor();
           };
           host.addEventListener('pointerdown', (event) => {
             if (event.button !== 0) return;
             if (this.drawing && this.drawing.mode()) return;
-            origin = { x: event.clientX, y: event.clientY };
-          });
-          host.addEventListener('pointermove', (event) => {
-            if (!origin || this.panning) return;
-            if (Math.abs(event.clientX - origin.x) + Math.abs(event.clientY - origin.y) < 3) return;
-            this.panning = true;
+            this.pressed = true;
             this.syncCursor();
           });
           // 松手可能发生在图外（甚至窗口外），挂在 window 上才不会漏
@@ -1415,22 +1520,16 @@
         }
 
         /**
-         * 光标：只在**能拖动的绘图区**里给「可抓」的小手，拖动过程中换成「抓住」。
+         * 光标：**只在按住主键的那段时间**是「抓住」的小手。
          *
-         * 轴区与两侧留白不给 —— 引擎要求指针落在绘图区内才起拖，那里给了会误导。
-         * 拖动中一律保持「抓住」，哪怕指针已经被拖出绘图区。
+         * 用户明确要求「不要一开始就把鼠标变成小手，要等按下鼠标之后再变」——
+         * 所以悬停**不给** `grab`，图表上鼠标保持普通箭头；按下主键立刻变手，
+         * 松手（哪怕指针已经拖到图外）立刻收回来。
+         *
+         * 屏幕坐标无关：这几件事只发生在**按下 / 抬起**两个瞬间，跟移动了多少像素无关。
          */
         syncCursor() {
-          let next = '';
-          if (this.panning) {
-            next = 'grabbing';
-          } else if (this.pointer) {
-            const chart = this.stack.chartOf(this.pointer.pane);
-            const plot = chart ? ICETradingChart.plotRect(chart) : null;
-            if (plot && this.pointer.x >= plot.x && this.pointer.x <= plot.x + plot.width && this.pointer.y >= plot.y && this.pointer.y <= plot.y + plot.height) {
-              next = 'grab';
-            }
-          }
+          const next = this.pressed ? 'grabbing' : '';
           if (next === this.cursor) return;
           this.cursor = next;
           document.getElementById('panes').style.cursor = next;
@@ -1486,6 +1585,7 @@
             this.viewFrame = null;
             // 先补历史再刷新：补晚一步，这一帧的拖动就已经撞墙了
             this.ensureHistory();
+            this.extendFutureSlots();
             this.stack.refresh({ animate: false, preserveView: true });
             this.chromeSig = '';
             this.syncChrome(true);
@@ -1575,6 +1675,7 @@
             this.ticksInBar = 0;
             this.candles.push(this.makeBar(last.at + interval.ms));
             this.trimHistory();
+            this.ensureFutureSlots();
           }
           this.matchOrders();
           // 跟盘时把窗口重新钉到最后 count 根；用户自己动过视窗（follow=false）就原样保留
