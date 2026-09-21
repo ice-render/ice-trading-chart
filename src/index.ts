@@ -1,172 +1,47 @@
-import { createChart } from '@damoqiongqiu/ice-chart';
-import type { AxisOption, ChartOption, ICEChart, ICEChartOptions, SeriesOption, TooltipOption } from '@damoqiongqiu/ice-chart';
-import { computePriceRange } from './axisRange';
-import { CANDLESTICK_TYPE, registerTradingSeries } from './register';
-import { createOhlcTooltipFormatter } from './tooltip';
-import type { CandleLabels, OhlcTooltipOptions } from './tooltip';
-import { buildVolumeSeries, collectVolumes, computeVolumeRange, volumeAxisIndexOf } from './volume';
-import type { TradingChartOption, TradingSeriesOption, VolumeOption } from './types';
-
-/** `createTradingChart` 的第三参：本包自己的开关。 */
-export interface TradingChartExtras {
-  /** 价格轴范围（含影线）的留白比例，默认 0.06。 */
-  pricePadding?: number;
-  /** 提示框里四个价（与量）的行名。 */
-  priceLabels?: CandleLabels;
-  /**
-   * 是否自动钉住价格轴范围，默认 `true`。
-   *
-   * 关掉就完全由 ice-chart 自动量程 —— 而它只看收盘价（`yField`），影线会被裁。
-   * 只有当你要自己按可见窗口做「价格轴自适应」时才该关。
-   */
-  autoPriceRange?: boolean;
-  /** 是否自动配成交量副图，默认 `true`。关掉相当于把 option 里的 `volume` 当不存在。 */
-  autoVolume?: boolean;
-}
-
-function isCandle(series: SeriesOption | undefined): series is TradingSeriesOption {
-  return !!series && series.type === CANDLESTICK_TYPE;
-}
-
-/** 只补没写的 min / max，用户显式给的那一侧不动。 */
-function withPriceRange(axis: AxisOption | undefined, range: { min: number; max: number }): AxisOption {
-  const merged: AxisOption = { ...(axis || {}) };
-  if (merged.min === undefined) merged.min = range.min;
-  if (merged.max === undefined) merged.max = range.max;
-  return merged;
-}
-
 /**
- * 把交易图表的 option 补齐成 ice-chart 能吃的形式。
+ * ice-trading-chart 的公开导出面。
  *
- * 六件事，都只填**没写**的字段：
- * 1. K 线系列的 `yField` 默认指向收盘价字段。
- * 2. `xAxis` 默认 `category` —— 等宽 K 线、跳过非交易时段。
- * 3. `yAxis.min` / `max` 按**含影线的全量极值**钉住（ice-chart 的自动量程只看收盘价）。
- * 4. **成交量副图**：数据里读得出量就加一个绑到第二 y 轴的 `bar` 系列，并把该轴钉成
- *    `[0, ratio×最大量]` 且 `show:false`、`nice:false` —— 柱子落在底部 `1/ratio`，
- *    隐藏的轴不占横向空间（`layout.ts` 里 `show:false` 直接 `offset = 0`）。
- * 5. 装上 OHLC（+量）提示框 formatter（用户自带 formatter 时不覆盖）。
- * 6. 用户自己声明的其余 y 轴原样保留。
+ * 分块：
+ * - `./chart`     交易图表的装配（option 补齐 + 建图）
+ * - `./indicators` 技术指标（纯函数 + 叠加/副图 option）
+ * - `./panes`      真副图（多实例 + 联动 + 横向对齐）
+ * - `./drawing`    画线工具（SVG 覆盖层，按数据坐标持久化）
+ * - `./volume`     成交量（同图第二轴压底）
+ * - `./project`    画布内坐标投影（HTML 外壳对齐用）
+ * - `./readout`    光标 → 一根 K 线的读数
  */
-export function toTradingOption(option: TradingChartOption, extras: TradingChartExtras = {}): ChartOption {
-  const seriesList = (option.series || []).map((series) => {
-    if (!isCandle(series)) return series;
-    const closeField = series.closeField || 'c';
-    return { ...series, yField: series.yField || closeField };
-  }) as TradingSeriesOption[];
-
-  const next: ChartOption = { ...option, series: seriesList as SeriesOption[] };
-  delete (next as unknown as Record<string, unknown>).volume;
-
-  if (!next.xAxis) {
-    next.xAxis = { type: 'category' };
-  }
-
-  // ---- 成交量副图（先算，因为要决定 yAxis 的形状）
-  const volumeConfig: VolumeOption | null =
-    extras.autoVolume === false || option.volume === false
-      ? null
-      : option.volume && typeof option.volume === 'object'
-        ? option.volume
-        : {};
-  let volumeSeries: SeriesOption | null = null;
-  let volumeSource: TradingSeriesOption | undefined;
-  if (volumeConfig) {
-    for (const series of seriesList) {
-      if (!isCandle(series)) continue;
-      const built = buildVolumeSeries(series, volumeConfig);
-      if (built) {
-        volumeSeries = built;
-        volumeSource = series;
-        break;
-      }
-    }
-  }
-  if (volumeSeries) {
-    next.series = [...seriesList, volumeSeries] as SeriesOption[];
-  }
-
-  // ---- y 轴：价格轴（钉含影线的范围）+ 成交量轴（钉带宽）
-  const userAxes: AxisOption[] = Array.isArray(option.yAxis)
-    ? option.yAxis.slice()
-    : option.yAxis
-      ? [option.yAxis]
-      : [];
-  const axes: AxisOption[] = [userAxes[0] ? { ...userAxes[0] } : {}];
-  let axesTouched = false;
-
-  if (extras.autoPriceRange !== false) {
-    const range = computePriceRange(seriesList, { padding: extras.pricePadding });
-    if (range) {
-      axes[0] = withPriceRange(axes[0], range);
-      axesTouched = true;
-    }
-  }
-
-  if (volumeSeries && volumeSource) {
-    const axisIndex = volumeAxisIndexOf(volumeConfig || {});
-    const volumeRange = computeVolumeRange(collectVolumes(volumeSource, volumeConfig || {}), (volumeConfig || {}).ratio);
-    const axis: AxisOption = { ...(userAxes[axisIndex] || {}), show: false, nice: false };
-    if (volumeRange) {
-      if (axis.min === undefined) axis.min = volumeRange.min;
-      if (axis.max === undefined) axis.max = volumeRange.max;
-    }
-    while (axes.length <= axisIndex) axes.push({});
-    axes[axisIndex] = axis;
-    axesTouched = true;
-  }
-
-  // 用户自己声明的其余轴原样补回
-  for (let i = 1; i < userAxes.length; i++) {
-    if (axes[i] === undefined) axes[i] = userAxes[i];
-  }
-
-  // 只在真的动过轴时才写回去 —— 没写 yAxis 的场景不该凭空多出一个空轴
-  if (axesTouched || Array.isArray(option.yAxis)) {
-    next.yAxis = Array.isArray(option.yAxis) || axes.length > 1 ? axes : axes[0];
-  }
-
-  // ---- 提示框
-  const candleOption = seriesList.find(isCandle);
-  if (candleOption && (!next.tooltip || !next.tooltip.formatter)) {
-    // 默认 `axis` 触发器：整列读数（十字光标到哪一根、抬头就显示哪一根）。
-    // 这与引擎自己的默认一致；引擎的 `item` 触发器要求指针正好压在数据图元上，
-    // 交易图表里那样会「时有时无」。
-    const tooltip: TooltipOption = { trigger: 'axis', ...(next.tooltip || {}) };
-    const formatterOptions: OhlcTooltipOptions = {
-      seriesOption: candleOption,
-      labels: extras.priceLabels,
-      volumeSeriesId: volumeSeries ? String(volumeSeries.id) : undefined,
-    };
-    // ice-chart 把 `tooltip.formatter` 的返回类型声明成了 `string | string[]`，
-    // 而运行时支持的还有 `{ title?, rows? }`（`InteractionController` 里那三个分支）。
-    // 这里按运行时的真实契约转型，不去动上游的类型声明。
-    tooltip.formatter = createOhlcTooltipFormatter(formatterOptions) as unknown as TooltipOption['formatter'];
-    next.tooltip = tooltip;
-  }
-
-  return next;
-}
-
-/**
- * 创建一张交易图表。
- *
- * 内部先注册 `candlestick` 系列（幂等），再按 `toTradingOption` 补齐 option，
- * 最后交给 ice-chart 的 `createChart`。返回的是标准的 `ICEChart` 实例 ——
- * 交互、联动、序列化全部沿用 ice-chart 的既有能力。
- */
-export function createTradingChart(
-  target: string | HTMLCanvasElement,
-  option: TradingChartOption,
-  extras: TradingChartExtras = {},
-  chartOptions?: ICEChartOptions
-): ICEChart {
-  registerTradingSeries();
-  return createChart(target, toTradingOption(option, extras) as ChartOption, chartOptions);
-}
-
+export { createTradingChart, toTradingOption } from './chart';
+export type { TradingChartExtras } from './chart';
 export { computePriceRange, DEFAULT_PRICE_PADDING } from './axisRange';
+export {
+  bollinger,
+  closeSeries,
+  createMacdPaneOption,
+  createOverlaySeries,
+  createRsiPaneOption,
+  ema,
+  macd,
+  macdRange,
+  rsi,
+  seriesData,
+  sma,
+  stdev,
+} from './indicators';
+export {
+  createPaneStack,
+  fixedWidthAxisFormatter,
+  DEFAULT_AXIS_LABEL_CHARS,
+  PANE_FONT_FAMILY,
+} from './panes';
+export type { PaneSpec, PaneStack, PaneStackOptions } from './panes';
+export { createDrawingLayer, DRAWING_KINDS } from './drawing';
+export type {
+  Drawing,
+  DrawingKind,
+  DrawingLayer,
+  DrawingLayerOptions,
+  DrawingPoint,
+} from './drawing';
 export { formatPct, formatPrice, formatSigned, formatVolume } from './format';
 export { readOhlc, hasOhlc, CANDLE_FIELDS } from './ohlc';
 export { plotRect, priceToY, yToPrice, categoryToX, xToCategoryIndex } from './project';

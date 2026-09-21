@@ -38,9 +38,22 @@
 - **格式化**：`formatPrice` / `formatVolume` / `formatSigned` / `formatPct`。
 - 提示框默认触发器改为 `axis`（整列读数）—— 与引擎默认一致，抬头跟随十字光标靠它；
   行名与顺序统一为 开 / 高 / 低 / 收（+ 量），量按成交量格式化而不是价格格式化。
-- 示例页 `examples/candlestick.html` 重做为专业交易图表：近黑底、周期切换（1m~1D）、
-  涨跌配色切换、K 线 + 成交量副图、最新价线 + 右轴价签、左上角 OHLC 抬头、
-  十字光标横线与两侧标签、收盘倒计时、伪实时推送。
+- **真副图（pane 栈）**：`createPaneStack` 把容器切成纵向堆叠的多块画布，每块一个 `ICEChart`，
+  x 轴类目共享、`linkCharts` 联动 hover / zoom / pan。横向对齐由「等宽字体 + 定宽刻度标签」
+  保证（`fixedWidthAxisFormatter`）；更新走 `stack.refresh()`，由栈负责重新注入对齐信息。
+- **技术指标**：纯函数 `sma` / `ema` / `stdev` / `bollinger` / `macd` / `rsi`（预热期为 `null`，
+  长度与输入一致），以及 `createOverlaySeries`（主图叠加 MA / EMA / BOLL）、
+  `createMacdPaneOption`（柱 + DIF + DEA）、`createRsiPaneOption`（RSI + 参考线）、`macdRange`。
+  派生系列数据带 `x`，且默认裁掉首尾 `null` —— 引擎会把 null 点当成 0 画出一条竖直假线。
+- **画线工具**：`createDrawingLayer` 用 SVG 覆盖层实现水平线 / 垂直线 / 趋势线 / 区间矩形，
+  支持选中、拖锚点、整条平移、删除，按**数据坐标**序列化（`dump()` / `load()`），
+  缩放平移后按当前比例尺重投影。
+- **坐标投影补强**：`xToCategoryIndex` 改用 `scale.invert`（命中不到取最近类目）——
+  类目带之间有 20% 空隙，`indexAt` 落在空隙里返回 -1。
+- 示例页扩到四个：`candlestick.html`（最小面）、`panes.html`（真副图 + 指标）、
+  `drawing.html`（画线）、`terminal.html`（完整终端屏：行情条 + 盘口十档 + 三 pane 图表
+  + 指标 + 画线 + 下单面板 + 持仓 / 委托表）。`candlestick.html` 同时升级为近黑底、
+  周期切换（1m~1D）、涨跌配色切换、最新价线 + 右轴价签 + OHLC 抬头 + 收盘倒计时。
 
 ### 其它
 

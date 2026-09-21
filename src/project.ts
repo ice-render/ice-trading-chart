@@ -57,12 +57,21 @@ export function categoryToX(chart: ICEChart, xValue: unknown): number | null {
   return plot.x + local;
 }
 
-/** 画布 x → 类目下标（类目轴才给得出；非类目轴返回 null）。 */
+/**
+ * 画布 x → 类目下标。
+ *
+ * 用 `scale.invert` 而不是 `scale.indexAt`：类目带之间**有间隙**（`paddingInner` 默认 0.2），
+ * `indexAt` 落在间隙里会返回 -1 —— 指针正好在两个蜡烛之间时就成了「没点到任何类目」。
+ * `invert` 命中不到时给最近的类目，这与十字光标取列的口径一致。
+ * 指针在绘图区之外才返回 null，调用方能区分「在外面」与「在最边上」。
+ */
 export function xToCategoryIndex(chart: ICEChart, x: number): number | null {
   const plot = plotRect(chart);
   if (!plot) return null;
+  if (x < plot.x || x > plot.x + plot.width) return null;
   const scale = chart.norm && chart.norm.xAxis && chart.norm.xAxis.scale;
   if (!scale || !scale.isBand()) return null;
-  const index = scale.indexAt(x - plot.x);
+  const value = scale.invert(x - plot.x);
+  const index = scale.domain.indexOf(value);
   return index >= 0 ? index : null;
 }

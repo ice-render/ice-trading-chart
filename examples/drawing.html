@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>ice-trading-chart · 画线工具</title>
+    <style>
+      :root {
+        --bg: #0b0f16;
+        --panel: #121821;
+        --line: #1e2733;
+        --text: #dfe7ef;
+        --dim: #8a97a6;
+        --muted: #5c6a7a;
+        --accent: #3b82f6;
+        --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Roboto Mono', monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 18px; background: var(--bg); color: var(--text); font: 13px/1.6 var(--font); }
+      .wrap { max-width: 1240px; margin: 0 auto; }
+      header.bar {
+        display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+        background: linear-gradient(180deg, var(--panel) 0%, #0e141c 100%);
+        border: 1px solid var(--line); border-bottom: none; flex-wrap: wrap;
+      }
+      .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+      .seg button {
+        border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--dim);
+        padding: 4px 10px; font-size: 12px; cursor: pointer;
+      }
+      .seg button:last-child { border-right: 0; }
+      .seg button.on { color: #fff; background: rgba(59, 130, 246, 0.22); }
+      .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      .tools > button {
+        background: #161d28; border: 1px solid #2a3646; border-radius: 4px; color: #a8b4c2;
+        padding: 4px 10px; font-size: 12px; cursor: pointer;
+      }
+      .tools > button:hover { color: var(--text); border-color: var(--accent); }
+      .hint { margin-left: auto; font: 11px/1.6 var(--mono); color: var(--muted); }
+      .stage { position: relative; border: 1px solid var(--line); border-top: none; background: #0e141c; }
+      canvas { display: block; max-width: 100%; }
+      .out {
+        margin-top: 10px; border: 1px solid var(--line); background: var(--panel);
+      }
+      .out header {
+        display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+        border-bottom: 1px solid var(--line); font: 12px/1.5 var(--mono); color: var(--dim);
+      }
+      .out pre {
+        margin: 0; padding: 10px; max-height: 190px; overflow: auto;
+        font: 11px/1.6 var(--mono); color: #9fb6d4; white-space: pre-wrap;
+      }
+      .lead { color: var(--dim); margin: 12px 2px 0; font-size: 12px; }
+      .lead code { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="bar">
+        <div class="tools">
+          <div class="seg" id="seg-tool">
+            <button data-tool="hline">水平线</button>
+            <button data-tool="vline">垂直线</button>
+            <button data-tool="trend">趋势线</button>
+            <button data-tool="rect">区间矩形</button>
+          </div>
+          <button id="btn-delete">删除选中</button>
+          <button id="btn-clear">清空</button>
+          <button id="btn-load">载入示例</button>
+          <button id="btn-toggle">暂停</button>
+        </div>
+        <span class="hint" id="hint">选一个工具，然后在图上点（趋势线 / 矩形点两下）</span>
+      </header>
+
+      <div class="stage" id="stage">
+        <canvas id="chart" width="1200" height="520"></canvas>
+      </div>
+
+      <div class="out">
+        <header>
+          <span>图形（数据坐标，可直接存盘）</span>
+          <span id="count">0</span>
+          <span style="margin-left:auto">选中：<b id="selected">-</b></span>
+        </header>
+        <pre id="dump">[]</pre>
+      </div>
+
+      <p class="lead">
+        画线是 <b>SVG 覆盖层</b>：拖动、选中、命中都用浏览器原生事件，不用跟引擎的重绘记账打交道；
+        图形按 <code>{ x, y }</code> 数据坐标存（x 是类目、y 是价格），缩放平移后按当前比例尺重投影，
+        所以 <code>dump()</code> 出来的 JSON 可以直接存盘、换台机器再 <code>load()</code> 回来。
+        只有画线图层在听 <code>zoom:change</code> / <code>pan:change</code>，图表本身照旧。
+      </p>
+    </div>
+
+    <script src="../node_modules/ice-render/dist/index.umd.js"></script>
+    <script src="../node_modules/@damoqiongqiu/ice-chart/dist/index.umd.js"></script>
+    <script src="../dist/index.umd.js"></script>
+    <script>
+      class DrawingDemoPage {
+        static COUNT = 90;
+        static STEP_MS = 15 * 60e3;
+        static TICK_MS = 900;
+        static TICKS_PER_BAR = 4;
+        static HEIGHT = 520;
+        static BASE_PRICE = 42000;
+
+        static round2(value) {
+          return Math.round(value * 100) / 100;
+        }
+
+        static pad2(value) {
+          return String(value).padStart(2, '0');
+        }
+
+        candles = [];
+        chart = null;
+        layer = null;
+        running = true;
+        timer = null;
+        price = DrawingDemoPage.BASE_PRICE;
+        ticksInBar = 0;
+
+        constructor() {
+          this.seed();
+          this.mount();
+          this.bindToolbar();
+          this.timer = setInterval(() => this.step(), DrawingDemoPage.TICK_MS);
+        }
+
+        labelOf(at) {
+          const date = new Date(at);
+          const day = `${DrawingDemoPage.pad2(date.getMonth() + 1)}-${DrawingDemoPage.pad2(date.getDate())}`;
+          const clock = `${DrawingDemoPage.pad2(date.getHours())}:${DrawingDemoPage.pad2(date.getMinutes())}`;
+          return DrawingDemoPage.COUNT * DrawingDemoPage.STEP_MS >= 86400e3 ? `${day} ${clock}` : clock;
+        }
+
+        seed() {
+          const now = Date.now();
+          this.candles = [];
+          this.price = DrawingDemoPage.BASE_PRICE;
+          this.ticksInBar = 0;
+          for (let i = 0; i < DrawingDemoPage.COUNT; i++) {
+            this.candles.push(this.makeBar(now - (DrawingDemoPage.COUNT - 1 - i) * DrawingDemoPage.STEP_MS));
+          }
+        }
+
+        makeBar(at) {
+          const open = this.price;
+          const close = open + (Math.random() - 0.5) * open * 0.0026;
+          const high = Math.max(open, close) + Math.random() * open * 0.0012;
+          const low = Math.min(open, close) - Math.random() * open * 0.0012;
+          this.price = close;
+          return {
+            at,
+            x: this.labelOf(at),
+            o: DrawingDemoPage.round2(open),
+            c: DrawingDemoPage.round2(close),
+            l: DrawingDemoPage.round2(low),
+            h: DrawingDemoPage.round2(high),
+            v: Math.round(600 + Math.random() * 2200),
+          };
+        }
+
+        get option() {
+          return {
+            legend: { show: false },
+            animation: { enabled: false },
+            theme: 'dark',
+            tooltip: { show: false },
+            crosshair: { show: true, axis: 'x', showAxisLabel: false },
+            xAxis: { type: 'category' },
+            yAxis: { position: 'right' },
+            volume: { ratio: 5 },
+            series: [
+              {
+                id: 'k',
+                type: 'candlestick',
+                name: 'K 线',
+                data: this.candles,
+                barWidth: 0.66,
+                candle: { upColor: '#f04438', downColor: '#12b76a', borderWidth: 1 },
+              },
+            ],
+          };
+        }
+
+        mount() {
+          this.chart = ICETradingChart.createTradingChart('chart', this.option);
+          this.layer = ICETradingChart.createDrawingLayer(this.chart, {
+            onChange: () => this.syncOutput(),
+          });
+          this.resize();
+          window.addEventListener('resize', () => this.resize());
+        }
+
+        bindToolbar() {
+          const seg = document.getElementById('seg-tool');
+          seg.addEventListener('click', (event) => {
+            const kind = event.target.getAttribute && event.target.getAttribute('data-tool');
+            if (!kind) return;
+            const next = this.layer.mode() === kind ? null : kind;
+            this.layer.setMode(next);
+            for (const button of seg.querySelectorAll('button')) {
+              button.classList.toggle('on', button.getAttribute('data-tool') === next);
+            }
+            this.setHint(next ? `画 ${event.target.textContent}：在图上点${next === 'trend' || next === 'rect' ? '两下' : '一下'}` : '已退出画线模式');
+          });
+          document.getElementById('btn-delete').addEventListener('click', () => {
+            const selected = this.layer.selected();
+            if (!selected) return this.setHint('先点一下某条线选中它');
+            this.layer.remove(selected.id);
+            this.setHint(`已删除 ${selected.id}`);
+          });
+          document.getElementById('btn-clear').addEventListener('click', () => {
+            this.layer.clear();
+            this.setHint('已清空');
+          });
+          document.getElementById('btn-load').addEventListener('click', () => this.loadSample());
+          document.getElementById('btn-toggle').addEventListener('click', () => {
+            this.running = !this.running;
+            document.getElementById('btn-toggle').textContent = this.running ? '暂停' : '继续';
+          });
+        }
+
+        loadSample() {
+          const domain = this.chart.getDomain('x');
+          const at = (ratio) => domain[Math.round((domain.length - 1) * ratio)];
+          const last = this.candles[this.candles.length - 1];
+          const top = Math.max.apply(null, this.candles.map((row) => row.h));
+          const bottom = Math.min.apply(null, this.candles.map((row) => row.l));
+          this.layer.load([
+            { id: 'sample-1', kind: 'hline', points: [{ x: at(0.5), y: top * 0.999 }] },
+            { id: 'sample-2', kind: 'trend', points: [{ x: at(0.2), y: bottom * 1.004 }, { x: at(0.8), y: last.c }] },
+            { id: 'sample-3', kind: 'rect', points: [{ x: at(0.55), y: last.c }, { x: at(0.75), y: last.c * 1.01 }] },
+          ]);
+          this.setHint('已载入三条示例图形（数据坐标是存盘格式）');
+        }
+
+        setHint(text) {
+          document.getElementById('hint').textContent = text;
+        }
+
+        syncOutput() {
+          const list = this.layer.dump();
+          document.getElementById('count').textContent = String(list.length);
+          const selected = this.layer.selected();
+          document.getElementById('selected').textContent = selected ? selected.id : '-';
+          document.getElementById('dump').textContent = JSON.stringify(list, null, 2);
+        }
+
+        resize() {
+          const stage = document.getElementById('stage');
+          const width = Math.max(320, Math.round(stage.clientWidth));
+          this.chart.resize(width, DrawingDemoPage.HEIGHT);
+          this.layer.refresh(true);
+        }
+
+        step() {
+          if (!this.running) return;
+          const last = this.candles[this.candles.length - 1];
+          const next = this.price + (Math.random() - 0.5) * this.price * 0.0016;
+          this.price = next;
+          last.c = DrawingDemoPage.round2(next);
+          last.h = DrawingDemoPage.round2(Math.max(last.h, next));
+          last.l = DrawingDemoPage.round2(Math.min(last.l, next));
+          last.v += Math.round(30 + Math.random() * 160);
+          this.ticksInBar += 1;
+          if (this.ticksInBar >= DrawingDemoPage.TICKS_PER_BAR) {
+            this.ticksInBar = 0;
+            this.candles.push(this.makeBar(last.at + DrawingDemoPage.STEP_MS));
+            if (this.candles.length > DrawingDemoPage.COUNT) this.candles.shift();
+          }
+          this.chart.setOption(ICETradingChart.toTradingOption(this.option), { animate: false, preserveView: true });
+          this.layer.refresh();
+        }
+      }
+
+      window.__page = new DrawingDemoPage();
+      window.__page.syncOutput();
+    </script>
+  </body>
+</html>

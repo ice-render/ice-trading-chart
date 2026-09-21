@@ -82,6 +82,39 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
   即整列读数，抬头跟随光标靠它）；
 - 重排按**几何签名**增量写 DOM，别每帧无条件写（`a11y-mirror.html` 就是这个套路）。
 
+## 副图（pane 栈）的两条纪律
+
+1. **更新必须走 `stack.refresh()`**：`setOption` 是**整体替换**（`ICEChart.applyOption` 里
+   直接 `this.option = option`），应用层拿原始 option 调会把 `createPaneStack` 注入的
+   「等宽主题 + 定宽刻度标签」一起冲掉 —— 冲掉之后三块绘图区的右边缘立刻错位。
+   这也是 `PaneSpec.option` 支持传函数（每次 refresh 重新求值）的原因。
+2. **横向对齐靠两件事**：等宽字体（`PANE_FONT_FAMILY`）+ 刻度标签补到固定字符数
+   （`fixedWidthAxisFormatter`）。右轴预留宽度 = 最宽标签 + 固定间距，所以标签字符数一致
+   才能让各 pane 的绘图区等宽。**字号预算（`axisLabelChars`）要够长**：标签超过预算就不补了，
+   对齐随即失效（实测 `42100.5` 是 7 字符，8 才安全）。
+
+## 类目轴取「最近类目」要用 invert 而不是 indexAt
+
+`BandScale` 的类目带之间有 `paddingInner`（默认 0.2）的**空隙**，`indexAt` 落在空隙里返回 -1
+（`indexAt` 只判「在带内」）。指针->类目一律用 `scale.invert()`（命中不到给最近类目），
+`src/project.ts` 的 `xToCategoryIndex` 就是这个口径 —— 早期用 `indexAt` 时，画线时点在两个蜡烛
+之间会「没反应」。
+
+## 折线系列的 null 点会被当成 0（上游行为，已在应用侧规避）
+
+ice-chart 归一化时把 `y === null` 的点写成 `top: 0`（`normalize.ts`），
+`computeEffective` 只在 `top === null` 时给 NaN，于是这个点按 **0** 参与绘制 ——
+折线会从第一个有效值处拉出一条竖直假线（实测像素 y 落在 `yScale.map(0)` 上，不是 NaN）。
+
+规避：`seriesData()` 默认**裁掉首尾 null**（均线预热期正是这种情况）。
+**中间的空洞目前没法在应用侧规避**，要等上游把 null 点真正断线。
+
+## 示例页的成员顺序（棘轮会卡）
+
+`static 字段 → static 方法 → 实例字段 → 构造函数 → 访问器 / 实例方法`。
+最容易写错的是把 `static round2()` 这类工具方法顺手写在构造函数后面 —— 棘轮判成
+`S*F*C*T*...` 直接失败（本项目连踩三次）。写新页面时先把 static 段落收齐再写字段。
+
 ## 价格轴为什么要自己钉（最容易踩的坑）
 
 `ice-chart` 的 `buildYDomain` 只收归一化后的 `y`（本包默认取收盘价字段），而

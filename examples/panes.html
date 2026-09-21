@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>ice-trading-chart · 真副图与指标</title>
+    <style>
+      :root {
+        --bg: #0b0f16;
+        --panel: #121821;
+        --line: #1e2733;
+        --text: #dfe7ef;
+        --dim: #8a97a6;
+        --muted: #5c6a7a;
+        --accent: #3b82f6;
+        --up: #f04438;
+        --down: #12b76a;
+        --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Roboto Mono', monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 18px; background: var(--bg); color: var(--text); font: 13px/1.6 var(--font); }
+      .wrap { max-width: 1240px; margin: 0 auto; }
+      header.bar {
+        display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+        background: linear-gradient(180deg, var(--panel) 0%, #0e141c 100%);
+        border: 1px solid var(--line); border-bottom: none;
+      }
+      .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+      .seg button {
+        border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--dim);
+        padding: 4px 9px; font: 500 12px/1.4 var(--mono); cursor: pointer;
+      }
+      .seg button:last-child { border-right: 0; }
+      .seg button.on { color: #fff; background: rgba(59, 130, 246, 0.22); }
+      .tools { display: flex; gap: 8px; align-items: center; }
+      .tools > button {
+        background: #161d28; border: 1px solid #2a3646; border-radius: 4px; color: #a8b4c2;
+        padding: 4px 10px; font-size: 12px; cursor: pointer;
+      }
+      .tools > button:hover { color: var(--text); border-color: var(--accent); }
+      .readout { margin-left: auto; font: 12px/1.6 var(--mono); color: var(--dim); white-space: nowrap; }
+      .readout b { color: var(--text); font-weight: 500; }
+      #panes { border: 1px solid var(--line); border-top: none; background: #0e141c; padding: 6px; height: 660px; }
+      footer {
+        display: flex; gap: 16px; padding: 8px 12px; border: 1px solid var(--line); border-top: none;
+        background: var(--panel); font: 11px/1.6 var(--mono); color: var(--dim);
+      }
+      footer b { color: var(--text); font-weight: 500; }
+      .lead { color: var(--dim); margin: 12px 2px 0; font-size: 12px; }
+      .lead code { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="bar">
+        <div class="tools">
+          <div class="seg" id="seg-overlay">
+            <button data-overlay="ma" class="on">MA</button>
+            <button data-overlay="boll">BOLL</button>
+          </div>
+          <button id="btn-toggle">暂停</button>
+          <button id="btn-reset">重置</button>
+        </div>
+        <div class="readout" id="readout">-</div>
+      </header>
+
+      <div id="panes"></div>
+
+      <footer>
+        <span>pane 数 <b id="s-panes">3</b></span>
+        <span>联动 <b>hover / zoom / pan</b></span>
+        <span>走势 <b id="s-bars">0</b> 根</span>
+        <span>fps <b id="s-fps">0</b></span>
+        <span id="s-note">滚轮缩放任一 pane，其余两块跟着走</span>
+      </footer>
+
+      <p class="lead">
+        三块画布、三个图表实例，x 轴类目共享、<code>linkCharts</code> 联动。副图不是「同一块绘图区
+        按轴域分带」——每块有自己的绘图区与刻度；横向对齐靠的是**等宽字体 + 定宽刻度标签**
+        （否则主图 <code>42100.5</code> 与成交量 <code>2.4K</code> 会把绘图区挤得左右错位）。
+        主图叠加 MA / BOLL，成交量与 MACD 各自成 pane。
+      </p>
+    </div>
+
+    <script src="../node_modules/ice-render/dist/index.umd.js"></script>
+    <script src="../node_modules/@damoqiongqiu/ice-chart/dist/index.umd.js"></script>
+    <script src="../dist/index.umd.js"></script>
+    <script>
+      class PaneDemoPage {
+        /** 类目必须逐根唯一：类目轴按字符串去重，跨天数据只写 HH:MM 会把两天并成一个类目。 */
+        static COUNT = 120;
+        static STEP_MS = 5 * 60e3;
+        static TICK_MS = 800;
+        static TICKS_PER_BAR = 3;
+        static HEIGHT = 660;
+        static BASE_PRICE = 42000;
+        static AXIS_CHARS = 8;
+
+        static round2(value) {
+          return Math.round(value * 100) / 100;
+        }
+
+        static pad2(value) {
+          return String(value).padStart(2, '0');
+        }
+
+        candles = [];
+        stack = null;
+        readout = null;
+        running = true;
+        timer = null;
+        overlay = { ma: true, boll: false };
+        price = PaneDemoPage.BASE_PRICE;
+        ticksInBar = 0;
+        frames = 0;
+        fpsAt = 0;
+
+        constructor() {
+          this.seed();
+          this.mount();
+          this.bindToolbar();
+          this.timer = setInterval(() => this.step(), PaneDemoPage.TICK_MS);
+          this.fpsAt = performance.now();
+        }
+
+        labelOf(at) {
+          const date = new Date(at);
+          const day = `${PaneDemoPage.pad2(date.getMonth() + 1)}-${PaneDemoPage.pad2(date.getDate())}`;
+          const clock = `${PaneDemoPage.pad2(date.getHours())}:${PaneDemoPage.pad2(date.getMinutes())}`;
+          return PaneDemoPage.COUNT * PaneDemoPage.STEP_MS >= 86400e3 ? `${day} ${clock}` : clock;
+        }
+
+        seed() {
+          const now = Date.now();
+          this.candles = [];
+          this.price = PaneDemoPage.BASE_PRICE;
+          this.ticksInBar = 0;
+          for (let i = 0; i < PaneDemoPage.COUNT; i++) {
+            this.candles.push(this.makeBar(now - (PaneDemoPage.COUNT - 1 - i) * PaneDemoPage.STEP_MS));
+          }
+        }
+
+        makeBar(at) {
+          const open = this.price;
+          const close = open + (Math.random() - 0.5) * open * 0.0022;
+          const high = Math.max(open, close) + Math.random() * open * 0.001;
+          const low = Math.min(open, close) - Math.random() * open * 0.001;
+          this.price = close;
+          return {
+            at,
+            x: this.labelOf(at),
+            o: PaneDemoPage.round2(open),
+            c: PaneDemoPage.round2(close),
+            l: PaneDemoPage.round2(low),
+            h: PaneDemoPage.round2(high),
+            v: Math.round(600 + Math.random() * 2600),
+          };
+        }
+
+        get candleSeries() {
+          return {
+            id: 'k',
+            type: 'candlestick',
+            name: 'K 线',
+            data: this.candles,
+            barWidth: 0.66,
+            candle: { upColor: '#f04438', downColor: '#12b76a', borderWidth: 1 },
+          };
+        }
+
+        get overlaySeries() {
+          const spec = {};
+          if (this.overlay.ma) spec.ma = [7, 25];
+          if (this.overlay.boll) spec.boll = { period: 20, multiplier: 2 };
+          return ICETradingChart.createOverlaySeries(this.candleSeries, spec);
+        }
+
+        get priceOption() {
+          return {
+            legend: { show: false },
+            animation: { enabled: false },
+            tooltip: { show: false },
+            crosshair: { show: true, axis: 'x', showAxisLabel: false },
+            xAxis: { type: 'category' },
+            yAxis: { position: 'right' },
+            volume: false,
+            series: [this.candleSeries].concat(this.overlaySeries),
+          };
+        }
+
+        get volumeOption() {
+          const series = ICETradingChart.buildVolumeSeries(this.candleSeries, { axisIndex: 0, barWidth: 0.56 });
+          return {
+            legend: { show: false },
+            animation: { enabled: false },
+            tooltip: { show: false },
+            xAxis: { type: 'category' },
+            yAxis: { position: 'right', tickCount: 3 },
+            series: [series],
+          };
+        }
+
+        get macdOption() {
+          const built = ICETradingChart.createMacdPaneOption(this.candleSeries, {});
+          const range = ICETradingChart.macdRange(this.candleSeries, {});
+          return {
+            legend: { show: false },
+            animation: { enabled: false },
+            tooltip: { show: false },
+            xAxis: { type: 'category' },
+            yAxis: { position: 'right', tickCount: 3, nice: false, min: range ? range.min : undefined, max: range ? range.max : undefined },
+            series: built.series,
+          };
+        }
+
+        mount() {
+          this.stack = ICETradingChart.createPaneStack(
+            document.getElementById('panes'),
+            [
+              { id: 'price', primary: true, weight: 3, option: () => this.priceOption, extras: { autoVolume: false } },
+              { id: 'volume', weight: 1, option: () => this.volumeOption },
+              { id: 'macd', weight: 1, option: () => this.macdOption },
+            ],
+            { height: PaneDemoPage.HEIGHT, axisLabelChars: PaneDemoPage.AXIS_CHARS, gap: 8 }
+          );
+          this.readout = ICETradingChart.createOhlcReadout(this.stack.chartOf('price'), { volume: {} });
+          window.addEventListener('resize', () => this.resize());
+        }
+
+        bindToolbar() {
+          document.getElementById('seg-overlay').addEventListener('click', (event) => {
+            const key = event.target.getAttribute && event.target.getAttribute('data-overlay');
+            if (!key) return;
+            this.overlay[key] = !this.overlay[key];
+            event.target.classList.toggle('on', this.overlay[key]);
+            this.refresh();
+          });
+          document.getElementById('btn-toggle').addEventListener('click', () => {
+            this.running = !this.running;
+            document.getElementById('btn-toggle').textContent = this.running ? '暂停' : '继续';
+          });
+          document.getElementById('btn-reset').addEventListener('click', () => {
+            this.seed();
+            this.rebuild();
+          });
+        }
+
+        /**
+         * 三块画布一起换数据。
+         *
+         * 必须走 pane 栈的 refresh：`setOption` 是**整体替换**，直接拿原始 option 调会把
+         * 栈注入的「等宽主题 + 定宽刻度标签」冲掉 —— 冲掉之后三块绘图区的右边缘就对不齐了。
+         */
+        refresh(animate) {
+          this.stack.refresh({ animate: !!animate, preserveView: true });
+        }
+
+        rebuild() {
+          this.refresh(true);
+          this.syncReadout();
+        }
+
+        step() {
+          if (!this.running) return;
+          const last = this.candles[this.candles.length - 1];
+          const next = this.price + (Math.random() - 0.5) * this.price * 0.0014;
+          this.price = next;
+          last.c = PaneDemoPage.round2(next);
+          last.h = PaneDemoPage.round2(Math.max(last.h, next));
+          last.l = PaneDemoPage.round2(Math.min(last.l, next));
+          last.v += Math.round(30 + Math.random() * 200);
+          this.ticksInBar += 1;
+          if (this.ticksInBar >= PaneDemoPage.TICKS_PER_BAR) {
+            this.ticksInBar = 0;
+            this.candles.push(this.makeBar(last.at + PaneDemoPage.STEP_MS));
+            if (this.candles.length > PaneDemoPage.COUNT) this.candles.shift();
+          }
+          this.refresh(false);
+          this.syncReadout();
+        }
+
+        resize() {
+          this.stack.resize();
+        }
+
+        /** 抬头数字直接写在工具条上（这块页面演示的是 pane，不是覆盖层外壳）。 */
+        syncReadout() {
+          const reading = this.readout.read();
+          if (!reading) return;
+          const row = this.candles[this.candles.length - 1];
+          const color = row.c >= row.o ? '#f04438' : '#12b76a';
+          const text = [
+            `<b>${this.candles.length}</b> 根`,
+            `开 <b>${ICETradingChart.formatPrice(reading.open)}</b>`,
+            `高 <b>${ICETradingChart.formatPrice(reading.high)}</b>`,
+            `低 <b>${ICETradingChart.formatPrice(reading.low)}</b>`,
+            `收 <b style="color:${color}">${ICETradingChart.formatPrice(reading.close)}</b>`,
+            `量 <b>${reading.volume === null ? '-' : ICETradingChart.formatVolume(reading.volume)}</b>`,
+          ].join(' · ');
+          document.getElementById('readout').innerHTML = text;
+          document.getElementById('s-bars').textContent = String(this.candles.length);
+        }
+
+        onFrame(now) {
+          this.frames += 1;
+          if (now - this.fpsAt >= 500) {
+            document.getElementById('s-fps').textContent = String(Math.round((this.frames / (now - this.fpsAt)) * 1000));
+            this.frames = 0;
+            this.fpsAt = now;
+            this.syncReadout();
+          }
+        }
+      }
+
+      const page = new PaneDemoPage();
+      const frame = (now) => {
+        page.onFrame(now);
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+      window.__page = page;
+    </script>
+  </body>
+</html>

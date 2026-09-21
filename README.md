@@ -113,6 +113,54 @@ createTradingChart('canvas-id', option, { priceLabels: { open: 'O', close: 'C', 
 
 自己写了 `tooltip.formatter` 就不会被覆盖。
 
+## 真副图与指标
+
+ice-chart 没有 pane 概念（只有一个绘图区 + 多个 y 轴），所以真副图用**多个图表实例 + 联动**实现：
+
+```ts
+const stack = createPaneStack(document.getElementById('panes')!, [
+  { id: 'price', primary: true, weight: 5, option: () => priceOption },
+  { id: 'volume', weight: 2, option: () => volumeOption },
+  { id: 'macd', weight: 2, option: () => macdOption },
+], { height: 520, axisLabelChars: 8, gap: 6 });
+
+stack.refresh({ animate: false, preserveView: true });   // 数据变了就调它
+```
+
+三块画布各有一个 `ICEChart`，x 轴类目共享、`linkCharts` 联动 hover / zoom / pan。
+**横向对齐是这一层的主要工作**：主图刻度是 `42100.5`、成交量是 `2.4K`，右轴预留宽度天然不同，
+绘图区就会左右错位。对策是等宽字体 + 定宽刻度标签（`fixedWidthAxisFormatter`），
+由 `createPaneStack` 自动注入。
+
+> ⚠️ 更新必须走 `stack.refresh()`。`setOption` 是**整体替换**，应用层直接拿原始 option 调
+> 会把栈注入的主题与定宽标签冲掉，对齐随即失效 —— 这也是 `option` 支持传函数的原因。
+
+指标是纯函数 + option 构造器，都在 `src/indicators.ts`：
+
+```ts
+createOverlaySeries(candles, { ma: [7, 25], boll: { period: 20 } });  // 主图叠加
+createMacdPaneOption(candles, {});                                    // 副图：柱 + DIF + DEA
+createRsiPaneOption(candles, { period: 14 });                         // 副图：RSI + 参考线
+sma / ema / stdev / bollinger / macd / rsi                            // 纯数列，预热期是 null
+```
+
+## 画线工具
+
+画线是 **SVG 覆盖层**，图形按**数据坐标**存，可序列化存盘：
+
+```ts
+const layer = createDrawingLayer(chart);
+layer.add({ kind: 'hline', points: [{ x: '10:30', y: 42000 }] });
+layer.setMode('trend');        // 之后在图上点两下画一条
+const saved = JSON.stringify(layer.dump());
+layer.load(JSON.parse(saved)); // 换台机器再 load 回来
+```
+
+支持 水平线 / 垂直线 / 趋势线 / 区间矩形；选中后拖锚点（或整条平移）改的都是数据坐标，
+缩放平移后按当前比例尺重投影。点已有图形 = 选中它，点空白 = 落点。
+
+> 画线依赖**类目轴**（x 以类目标签存储）。数值/时间轴上请另择方案。
+
 ## 公开 API
 
 | 导出 | 用途 |
@@ -128,6 +176,10 @@ createTradingChart('canvas-id', option, { priceLabels: { open: 'O', close: 'C', 
 | `plotRect` / `priceToY` / `yToPrice` / `categoryToX` / `xToCategoryIndex` | 画布内坐标投影（HTML 外壳对齐用） |
 | `formatPrice` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化 |
 | `CandlestickSeries` / `resolveCandleStyle` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与配色 |
+| `createPaneStack(container, specs, options)` | 真副图：多实例 + 联动 + 横向对齐 |
+| `createOverlaySeries` / `createMacdPaneOption` / `createRsiPaneOption` | 指标 option 构造 |
+| `sma` / `ema` / `stdev` / `bollinger` / `macd` / `rsi` / `macdRange` | 指标纯函数 |
+| `createDrawingLayer(chart, options)` | 画线图层（SVG 覆盖层，数据坐标持久化） |
 
 ## 图表外壳：数据由库给，排版由页面画
 
@@ -144,6 +196,15 @@ createTradingChart('canvas-id', option, { priceLabels: { open: 'O', close: 'C', 
 > 价格轴在右边；另外它的横向准星只走数据点、不跟指针。所以示例里把 `crosshair.showAxisLabel`
 > 关掉，横线与两个标签由页面自己画。
 
+## 示例页
+
+| 页面 | 演示什么 |
+| --- | --- |
+| `examples/candlestick.html` | 最小面：K 线 + 同图成交量（第二轴压底）+ 最新价线 / 右轴价签 / OHLC 抬头 |
+| `examples/panes.html` | 真副图：价格 + 成交量 + MACD 三 pane 联动，主图叠加 MA / BOLL |
+| `examples/drawing.html` | 画线工具：水平线 / 趋势线 / 区间矩形，拖动、删除、序列化 |
+| `examples/terminal.html` | 完整终端屏：行情条 + 盘口十档 + 图表（副图 + 指标 + 画线）+ 下单面板 + 持仓 / 委托 |
+
 ## 开发
 
 ```bash
@@ -152,8 +213,9 @@ npm run test:e2e                 # playwright（端口 8102）
 npm run verify:full              # verify + e2e
 ```
 
-示例页在 `examples/`，e2e 会目录驱动地逐页冒烟。上游联调：把 `devDependencies` 里的
-`@damoqiongqiu/ice-chart` 换成 `file:../ice-chart`。
+示例页在 `examples/`，e2e 会目录驱动地逐页冒烟。**示例加载的是 `dist/`，所以改了 `src`
+必须先 `npm run build` 再用浏览器验证**（jest 走 `src`，会掩盖这一点）。
+上游联调：把 `devDependencies` 里的 `@damoqiongqiu/ice-chart` 换成 `file:../ice-chart`。
 
 ## 许可
 
