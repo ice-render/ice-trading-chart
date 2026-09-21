@@ -48,6 +48,25 @@ const chart = createTradingChart('canvas-id', {
 返回的是标准的 `ICEChart` 实例 —— `chart.on(…)`、`chart.setData(…)`、`chart.toJSON()`
 这些用法与直接使用 `ice-chart` 完全一致。
 
+## 成交量副图
+
+数据项里带上成交量，副图**自动**出现（读不出量就什么都不加，不影响 K 线）：
+
+```ts
+createTradingChart('canvas-id', {
+  xAxis: { type: 'category' },
+  yAxis: { position: 'right' },
+  volume: { field: 'v', ratio: 5 },   // 不写也自动；写 false 明确不要
+  series: [{ id: 'k', type: 'candlestick', data: [{ x: '09:30', o, c, l, h, v }, …] }],
+});
+```
+
+做法是把成交量放到**第二个 y 轴**、轴域钉成 `[0, ratio × 最大量]` 且 `show:false`：
+`v = 最大量` 正好落在绘图区底部 `1/ratio`，柱子在底部、刻度不占横向空间。
+`ratio` 默认 5（20%），柱子按 `close ≥ open` 逐项上色。
+
+> `nice: false` 是必须的：轴域要是走了「取整到好看刻度」，上界会被抬上去，`1/ratio` 的带宽就不准了。
+
 ## 数据契约
 
 每个数据项是一个「四个价」，两种写法都认：
@@ -103,8 +122,27 @@ createTradingChart('canvas-id', option, { priceLabels: { open: 'O', close: 'C', 
 | `registerTradingSeries()` | 只注册 `candlestick` 系列（幂等） |
 | `readOhlc(raw, option?)` / `hasOhlc` | 数据项 → `[开, 收, 低, 高]` |
 | `computePriceRange(seriesList, { padding? })` | 含影线的价格轴范围 |
-| `createOhlcTooltipFormatter({ labels?, seriesOption? })` | OHLC 提示框 formatter |
-| `CandlestickSeries` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与默认配色 |
+| `computeVolumeRange(values, ratio?)` / `buildVolumeSeries(source, option?)` | 成交量轴域与系列（副图） |
+| `createOhlcTooltipFormatter({ labels?, seriesOption?, volumeSeriesId? })` | OHLC（+量）提示框 formatter |
+| `createOhlcReadout(chart, { seriesId?, volume? })` | 光标 / 数据 → 一根 K 线的读数（抬头用） |
+| `plotRect` / `priceToY` / `yToPrice` / `categoryToX` / `xToCategoryIndex` | 画布内坐标投影（HTML 外壳对齐用） |
+| `formatPrice` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化 |
+| `CandlestickSeries` / `resolveCandleStyle` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与配色 |
+
+## 图表外壳：数据由库给，排版由页面画
+
+交易图表上的**最新价线、右侧价签、左上角 OHLC 抬头、十字光标的价格/时间标签**通常由应用
+用 DOM 画在画布上方（而不是画进 canvas）。本包因此提供两样东西：
+
+- `createOhlcReadout()` —— 「当前光标那一根」的读数（开高低收 / 量 / 涨跌额 / 涨跌幅）；
+- `project.ts` 的投影函数 —— 数据坐标 ↔ 画布 CSS 像素，外壳容器只要与画布左上角对齐就能直接定位。
+
+`examples/candlestick.html` 就是这么做的：引擎画 K 线与成交量，页面画抬头、价签、横线与倒计时，
+并且**只在几何签名变化时才写 DOM**（每帧无条件重排会掉帧）。
+
+> 为什么不用引擎自带的十字光标标签：它的 y 标签固定画在绘图区**左**边缘，而交易图表的
+> 价格轴在右边；另外它的横向准星只走数据点、不跟指针。所以示例里把 `crosshair.showAxisLabel`
+> 关掉，横线与两个标签由页面自己画。
 
 ## 开发
 

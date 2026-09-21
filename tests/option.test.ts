@@ -83,9 +83,9 @@ describe('toTradingOption', () => {
     expect((option.yAxis as any[])[1]).not.toHaveProperty('min');
   });
 
-  it('默认装 OHLC 提示框 formatter，且触发方式为 item', () => {
+  it('默认装 OHLC 提示框 formatter，且触发方式为 axis（整列读数）', () => {
     const option = toTradingOption(CANDLE);
-    expect(option.tooltip!.trigger).toBe('item');
+    expect(option.tooltip!.trigger).toBe('axis');
     expect(typeof option.tooltip!.formatter).toBe('function');
   });
 

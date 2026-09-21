@@ -50,6 +50,37 @@ export interface TradingSeriesOption extends SeriesOption, CandleFieldOptions {
 
 export interface TradingChartOption extends Omit<ChartOption, 'series'> {
   series: TradingSeriesOption[];
+  /**
+   * 成交量副图。
+   *
+   * - 不写：**自动** —— 数据项里能读出成交量字段（默认 `v`）就加，读不出就什么都不加；
+   * - 传对象：`{ field, ratio, upColor, downColor, axisIndex, barWidth }`；
+   * - 传 `false`：明确不要。
+   *
+   * ice-chart 没有 pane 概念，所以成交量走**第二个 y 轴**：轴域钉成 `[0, ratio × 最大量]`，
+   * 柱子自然落在绘图区底部 `1/ratio` 的带子里（默认 5 → 20%）。
+   */
+  volume?: VolumeOption | boolean;
+}
+
+/**
+ * 成交量副图配置。
+ *
+ * 上界是 `ratio × 最大量` 而不是最大量本身 —— 这就是「把柱子压到底部 1/ratio」的全部数学。
+ */
+export interface VolumeOption {
+  /** 数据项里的成交量字段名，默认 `v`（也认长名 `volume`）。 */
+  field?: string;
+  /** 高度比例分母：成交量占绘图区底部 `1/ratio`，默认 5（即 20%）。 */
+  ratio?: number;
+  /** 涨色，默认沿用 K 线的涨色。 */
+  upColor?: string;
+  /** 跌色，默认沿用 K 线的跌色。 */
+  downColor?: string;
+  /** 绑到哪个 y 轴，默认 1（价格轴是 0）。 */
+  axisIndex?: number;
+  /** 柱宽（占 band 的比例），默认 0.62。 */
+  barWidth?: number;
 }
 
 /** 价格轴的显式范围。影线必须进量程，否则会被裁掉。 */

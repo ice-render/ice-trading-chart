@@ -4,13 +4,14 @@ import { computePriceRange } from './axisRange';
 import { CANDLESTICK_TYPE, registerTradingSeries } from './register';
 import { createOhlcTooltipFormatter } from './tooltip';
 import type { CandleLabels, OhlcTooltipOptions } from './tooltip';
-import type { TradingChartOption, TradingSeriesOption } from './types';
+import { buildVolumeSeries, collectVolumes, computeVolumeRange, volumeAxisIndexOf } from './volume';
+import type { TradingChartOption, TradingSeriesOption, VolumeOption } from './types';
 
 /** `createTradingChart` 的第三参：本包自己的开关。 */
 export interface TradingChartExtras {
   /** 价格轴范围（含影线）的留白比例，默认 0.06。 */
   pricePadding?: number;
-  /** 提示框里四个价的行名。 */
+  /** 提示框里四个价（与量）的行名。 */
   priceLabels?: CandleLabels;
   /**
    * 是否自动钉住价格轴范围，默认 `true`。
@@ -19,23 +20,34 @@ export interface TradingChartExtras {
    * 只有当你要自己按可见窗口做「价格轴自适应」时才该关。
    */
   autoPriceRange?: boolean;
+  /** 是否自动配成交量副图，默认 `true`。关掉相当于把 option 里的 `volume` 当不存在。 */
+  autoVolume?: boolean;
 }
 
 function isCandle(series: SeriesOption | undefined): series is TradingSeriesOption {
   return !!series && series.type === CANDLESTICK_TYPE;
 }
 
+/** 只补没写的 min / max，用户显式给的那一侧不动。 */
+function withPriceRange(axis: AxisOption | undefined, range: { min: number; max: number }): AxisOption {
+  const merged: AxisOption = { ...(axis || {}) };
+  if (merged.min === undefined) merged.min = range.min;
+  if (merged.max === undefined) merged.max = range.max;
+  return merged;
+}
+
 /**
  * 把交易图表的 option 补齐成 ice-chart 能吃的形式。
  *
- * 四件事，都只填**没写**的字段：
- * 1. K 线系列的 `yField` 默认指向收盘价字段 —— 这样默认提示框的 `value`、序列化的数据契约
- *    都以收盘价为准。
- * 2. `xAxis` 默认 `category` —— 等宽 K 线、跳过非交易时段，正是行情图要的语义。
- * 3. `yAxis.min` / `max` 按**含影线的全量极值**钉住 —— ice-chart 的自动量程只看收盘价，
- *    不钉住影线就被裁（`min` / `max` 是公开选项，且显式写的那一侧不加自动留白，
- *    所以留白由 `computePriceRange` 给）。
- * 4. 装上 OHLC 提示框 formatter（用户自带 formatter 时不覆盖）。
+ * 六件事，都只填**没写**的字段：
+ * 1. K 线系列的 `yField` 默认指向收盘价字段。
+ * 2. `xAxis` 默认 `category` —— 等宽 K 线、跳过非交易时段。
+ * 3. `yAxis.min` / `max` 按**含影线的全量极值**钉住（ice-chart 的自动量程只看收盘价）。
+ * 4. **成交量副图**：数据里读得出量就加一个绑到第二 y 轴的 `bar` 系列，并把该轴钉成
+ *    `[0, ratio×最大量]` 且 `show:false`、`nice:false` —— 柱子落在底部 `1/ratio`，
+ *    隐藏的轴不占横向空间（`layout.ts` 里 `show:false` 直接 `offset = 0`）。
+ * 5. 装上 OHLC（+量）提示框 formatter（用户自带 formatter 时不覆盖）。
+ * 6. 用户自己声明的其余 y 轴原样保留。
  */
 export function toTradingOption(option: TradingChartOption, extras: TradingChartExtras = {}): ChartOption {
   const seriesList = (option.series || []).map((series) => {
@@ -45,27 +57,88 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
   }) as TradingSeriesOption[];
 
   const next: ChartOption = { ...option, series: seriesList as SeriesOption[] };
+  delete (next as unknown as Record<string, unknown>).volume;
 
   if (!next.xAxis) {
     next.xAxis = { type: 'category' };
   }
 
-  if (extras.autoPriceRange !== false) {
-    const range = computePriceRange(seriesList, { padding: extras.pricePadding });
-    const axis = next.yAxis;
-    if (range) {
-      if (Array.isArray(axis)) {
-        if (axis.length) next.yAxis = [withPriceRange(axis[0], range), ...axis.slice(1)];
-      } else {
-        next.yAxis = withPriceRange(axis, range);
+  // ---- 成交量副图（先算，因为要决定 yAxis 的形状）
+  const volumeConfig: VolumeOption | null =
+    extras.autoVolume === false || option.volume === false
+      ? null
+      : option.volume && typeof option.volume === 'object'
+        ? option.volume
+        : {};
+  let volumeSeries: SeriesOption | null = null;
+  let volumeSource: TradingSeriesOption | undefined;
+  if (volumeConfig) {
+    for (const series of seriesList) {
+      if (!isCandle(series)) continue;
+      const built = buildVolumeSeries(series, volumeConfig);
+      if (built) {
+        volumeSeries = built;
+        volumeSource = series;
+        break;
       }
     }
   }
+  if (volumeSeries) {
+    next.series = [...seriesList, volumeSeries] as SeriesOption[];
+  }
 
+  // ---- y 轴：价格轴（钉含影线的范围）+ 成交量轴（钉带宽）
+  const userAxes: AxisOption[] = Array.isArray(option.yAxis)
+    ? option.yAxis.slice()
+    : option.yAxis
+      ? [option.yAxis]
+      : [];
+  const axes: AxisOption[] = [userAxes[0] ? { ...userAxes[0] } : {}];
+  let axesTouched = false;
+
+  if (extras.autoPriceRange !== false) {
+    const range = computePriceRange(seriesList, { padding: extras.pricePadding });
+    if (range) {
+      axes[0] = withPriceRange(axes[0], range);
+      axesTouched = true;
+    }
+  }
+
+  if (volumeSeries && volumeSource) {
+    const axisIndex = volumeAxisIndexOf(volumeConfig || {});
+    const volumeRange = computeVolumeRange(collectVolumes(volumeSource, volumeConfig || {}), (volumeConfig || {}).ratio);
+    const axis: AxisOption = { ...(userAxes[axisIndex] || {}), show: false, nice: false };
+    if (volumeRange) {
+      if (axis.min === undefined) axis.min = volumeRange.min;
+      if (axis.max === undefined) axis.max = volumeRange.max;
+    }
+    while (axes.length <= axisIndex) axes.push({});
+    axes[axisIndex] = axis;
+    axesTouched = true;
+  }
+
+  // 用户自己声明的其余轴原样补回
+  for (let i = 1; i < userAxes.length; i++) {
+    if (axes[i] === undefined) axes[i] = userAxes[i];
+  }
+
+  // 只在真的动过轴时才写回去 —— 没写 yAxis 的场景不该凭空多出一个空轴
+  if (axesTouched || Array.isArray(option.yAxis)) {
+    next.yAxis = Array.isArray(option.yAxis) || axes.length > 1 ? axes : axes[0];
+  }
+
+  // ---- 提示框
   const candleOption = seriesList.find(isCandle);
   if (candleOption && (!next.tooltip || !next.tooltip.formatter)) {
-    const tooltip: TooltipOption = { trigger: 'item', ...(next.tooltip || {}) };
-    const formatterOptions: OhlcTooltipOptions = { seriesOption: candleOption, labels: extras.priceLabels };
+    // 默认 `axis` 触发器：整列读数（十字光标到哪一根、抬头就显示哪一根）。
+    // 这与引擎自己的默认一致；引擎的 `item` 触发器要求指针正好压在数据图元上，
+    // 交易图表里那样会「时有时无」。
+    const tooltip: TooltipOption = { trigger: 'axis', ...(next.tooltip || {}) };
+    const formatterOptions: OhlcTooltipOptions = {
+      seriesOption: candleOption,
+      labels: extras.priceLabels,
+      volumeSeriesId: volumeSeries ? String(volumeSeries.id) : undefined,
+    };
     // ice-chart 把 `tooltip.formatter` 的返回类型声明成了 `string | string[]`，
     // 而运行时支持的还有 `{ title?, rows? }`（`InteractionController` 里那三个分支）。
     // 这里按运行时的真实契约转型，不去动上游的类型声明。
@@ -74,14 +147,6 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
   }
 
   return next;
-}
-
-/** 只补没写的 min / max，用户显式给的那一侧不动。 */
-function withPriceRange(axis: AxisOption | undefined, range: { min: number; max: number }): AxisOption {
-  const merged: AxisOption = { ...(axis || {}) };
-  if (merged.min === undefined) merged.min = range.min;
-  if (merged.max === undefined) merged.max = range.max;
-  return merged;
 }
 
 /**
@@ -102,11 +167,25 @@ export function createTradingChart(
 }
 
 export { computePriceRange, DEFAULT_PRICE_PADDING } from './axisRange';
+export { formatPct, formatPrice, formatSigned, formatVolume } from './format';
 export { readOhlc, hasOhlc, CANDLE_FIELDS } from './ohlc';
+export { plotRect, priceToY, yToPrice, categoryToX, xToCategoryIndex } from './project';
+export { createOhlcReadout } from './readout';
 export { registerTradingSeries, CANDLESTICK_TYPE } from './register';
-export { CandlestickSeries, DEFAULT_UP_COLOR, DEFAULT_DOWN_COLOR } from './series/CandlestickSeries';
-export { createOhlcTooltipFormatter, formatPrice, DEFAULT_CANDLE_LABELS } from './tooltip';
+export { CandlestickSeries, DEFAULT_UP_COLOR, DEFAULT_DOWN_COLOR, resolveCandleStyle } from './series/CandlestickSeries';
+export { createOhlcTooltipFormatter, DEFAULT_CANDLE_LABELS } from './tooltip';
+export {
+  buildVolumeSeries,
+  collectVolumes,
+  computeVolumeRange,
+  readVolume,
+  DEFAULT_VOLUME_BAR_WIDTH,
+  DEFAULT_VOLUME_FIELD,
+  DEFAULT_VOLUME_RATIO,
+} from './volume';
 export type { CandleLabels, OhlcTooltipOptions } from './tooltip';
+export type { OhlcReading, OhlcReadout, OhlcReadoutOptions } from './readout';
+export type { ResolvedCandleStyle } from './series/CandlestickSeries';
 export type {
   CandleDatum,
   CandleFieldOptions,
@@ -116,4 +195,5 @@ export type {
   PriceRangeOptions,
   TradingChartOption,
   TradingSeriesOption,
+  VolumeOption,
 } from './types';

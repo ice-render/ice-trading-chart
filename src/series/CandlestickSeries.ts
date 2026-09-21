@@ -7,6 +7,23 @@ import type { TradingSeriesOption } from '../types';
 export const DEFAULT_UP_COLOR = '#EF4444';
 export const DEFAULT_DOWN_COLOR = '#10B981';
 
+/** 解析后的蜡烛样式（成交量、抬头、价签都要用同一份，所以往外暴露一个出口）。 */
+export interface ResolvedCandleStyle {
+  upColor: string;
+  downColor: string;
+  borderWidth: number;
+}
+
+/** 把系列上的 `candle` 选项补成完整的样式。 */
+export function resolveCandleStyle(option?: TradingSeriesOption | null): ResolvedCandleStyle {
+  const candle = (option && option.candle) || {};
+  return {
+    upColor: candle.upColor || DEFAULT_UP_COLOR,
+    downColor: candle.downColor || DEFAULT_DOWN_COLOR,
+    borderWidth: candle.borderWidth === undefined ? 1 : candle.borderWidth,
+  };
+}
+
 /**
  * K 线（蜡烛图）。
  *
@@ -86,10 +103,10 @@ export class CandlestickSeries extends SeriesBase {
     const ctx = this.ctx;
     const unit = this.unit();
     const option = this.candleOption;
-    const candle = option.candle || {};
-    const upColor = candle.upColor || DEFAULT_UP_COLOR;
-    const downColor = candle.downColor || DEFAULT_DOWN_COLOR;
-    const borderWidth = Math.max(unit, (Number(candle.borderWidth) || 1) * unit);
+    const style = resolveCandleStyle(option);
+    const upColor = style.upColor;
+    const downColor = style.downColor;
+    const borderWidth = Math.max(unit, style.borderWidth * unit);
     const bandWidth = coord.xScale.bandwidth() || coord.xScale.step() * 0.6;
     const bodyWidth = this.resolveBodyWidth(bandWidth);
     const rects = this.candleRects();

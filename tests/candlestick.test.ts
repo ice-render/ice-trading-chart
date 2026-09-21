@@ -1,5 +1,6 @@
+import { computeBarSlots } from '@damoqiongqiu/ice-chart';
 import type { ICEChart } from '@damoqiongqiu/ice-chart';
-import { createTradingChart } from '../src/index';
+import { createTradingChart, priceToY } from '../src/index';
 import { CandlestickSeries } from '../src/series/CandlestickSeries';
 import type { TradingChartOption } from '../src/types';
 
@@ -75,8 +76,8 @@ describe('K 线（引擎集成）', () => {
 
     c.controller.handlePointerMove(sx, sy);
     const content = c.tooltip!.content!;
-    expect(content.rows.map((r) => r.name)).toEqual(['开盘', '收盘', '最低', '最高']);
-    expect(content.rows.map((r) => r.value)).toEqual(['110', '105', '100', '118']);
+    expect(content.rows.map((r) => r.name)).toEqual(['开', '高', '低', '收']);
+    expect(content.rows.map((r) => r.value)).toEqual(['110', '118', '100', '105']);
   });
 
   it('命中判定覆盖影线区间（不是只有实体）', async () => {
@@ -135,13 +136,13 @@ describe('K 线（引擎集成）', () => {
           },
         ],
       },
-      { priceLabels: { open: 'O', close: 'C', low: 'L', high: 'H' } }
+      { priceLabels: { open: 'O', high: 'H', low: 'L', close: 'C' } }
     );
     const x = c.norm.xAxis.scale!.map(c.norm.series[0].points[0].xValue);
     const y = c.norm.yAxes[0].scale!.map(110);
     c.controller.handlePointerMove(c.layout.plot.x + x, c.layout.plot.y + y);
     const content = c.tooltip!.content!;
-    expect(content.rows.map((r) => r.name)).toEqual(['O', 'C', 'L', 'H']);
+    expect(content.rows.map((r) => r.name)).toEqual(['O', 'H', 'L', 'C']);
     expect(content.rows[0].value).toBe('100');
   });
 
@@ -181,5 +182,112 @@ describe('K 线（引擎集成）', () => {
     const y = c.norm.yAxes[0].scale!.map(105);
     c.controller.handlePointerMove(c.layout.plot.x + x, c.layout.plot.y + y);
     expect(c.tooltip!.content).not.toBeNull();
+  });
+});
+
+describe('成交量副图（引擎集成）', () => {
+  const WITH_VOLUME: TradingChartOption = {
+    ...CANDLE_OPTION,
+    series: [
+      {
+        ...CANDLE_OPTION.series[0],
+        data: [
+          { x: 'D1', o: 100, c: 110, l: 95, h: 115, v: 1000 },
+          { x: 'D2', o: 110, c: 105, l: 100, h: 118, v: 2000 },
+          { x: 'D3', o: 105, c: 120, l: 102, h: 125, v: 4000 },
+        ],
+      },
+    ],
+  };
+
+  let canvas: HTMLCanvasElement;
+  let chart: ICEChart | null = null;
+
+  beforeEach(() => {
+    canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 400;
+    document.body.appendChild(canvas);
+  });
+
+  afterEach(() => {
+    if (chart) chart.destroy();
+    chart = null;
+    if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+  });
+
+  async function mount(option: TradingChartOption): Promise<ICEChart> {
+    const c = createTradingChart(canvas, option);
+    await c.render();
+    return c;
+  }
+
+  it('数据里有量就自动多出一个绑到轴 1 的 bar 系列', async () => {
+    const c = await mount(WITH_VOLUME);
+    expect(c.norm.series).toHaveLength(2);
+    expect(c.norm.series[1].type).toBe('bar');
+    expect(c.norm.series[1].axisIndex).toBe(1);
+    expect(c.norm.yAxes).toHaveLength(2);
+  });
+
+  it('成交量轴 show:false → 不占横向空间', async () => {
+    const c = await mount(WITH_VOLUME);
+    expect(c.norm.yAxes[1].option.show).toBe(false);
+    expect(c.norm.yAxes[1].option.nice).toBe(false);
+  });
+
+  it('轴域是 [0, 5×最大量]，最大量正好落在绘图区底部 20%', async () => {
+    const c = await mount(WITH_VOLUME);
+    expect(c.norm.yAxes[1].domain).toEqual([0, 20000]);
+    const plot = c.layout.plot;
+    expect(priceToY(c, 4000, 1)!).toBeCloseTo(plot.y + plot.height * 0.8, 3);
+    // 量的最低点贴底
+    expect(priceToY(c, 0, 1)!).toBeCloseTo(plot.y + plot.height, 3);
+  });
+
+  it('K 线不参与柱位分配（它的类型是 candlestick，不是 bar）', async () => {
+    const c = await mount(WITH_VOLUME);
+    const slots = computeBarSlots(c.norm.series);
+    // 只有成交量系列被算进柱位，且独占整条 band
+    expect(Object.keys(slots)).toEqual(['k__volume']);
+    expect(slots['k__volume']).toEqual({ index: 0, count: 1 });
+  });
+
+  it('价格轴的范围不受成交量影响', async () => {
+    const c = await mount(WITH_VOLUME);
+    expect(c.norm.yAxes[0].domain[0]).toBeLessThanOrEqual(95);
+    expect(c.norm.yAxes[0].domain[1]).toBeGreaterThanOrEqual(125);
+    // 量级完全不同：不能把 20000 混进价格轴
+    expect(c.norm.yAxes[0].domain[1]).toBeLessThan(1000);
+  });
+
+  it('volume: false 时完全不生成成交量', async () => {
+    const c = await mount({ ...WITH_VOLUME, volume: false });
+    expect(c.norm.series).toHaveLength(1);
+    expect(c.norm.yAxes).toHaveLength(1);
+  });
+
+  it('ratio 可调（ratio 4 → 底部 25%）', async () => {
+    const c = await mount({ ...WITH_VOLUME, volume: { ratio: 4 } });
+    expect(c.norm.yAxes[1].domain).toEqual([0, 16000]);
+    const plot = c.layout.plot;
+    expect(priceToY(c, 4000, 1)!).toBeCloseTo(plot.y + plot.height * 0.75, 3);
+  });
+
+  it('提示框在 axis 触发下同时给四个价与量（量按成交量格式化，不走价格格式化器）', async () => {
+    const c = await mount({ ...WITH_VOLUME, tooltip: { trigger: 'axis' } });
+    const x = c.norm.xAxis.scale!.map('D3');
+    const y = c.norm.yAxes[0].scale!.map(120);
+    c.controller.handlePointerMove(c.layout.plot.x + x, c.layout.plot.y + y);
+    const rows = c.tooltip!.content!.rows;
+    expect(rows.map((r) => r.name)).toEqual(['开', '高', '低', '收', '量']);
+    expect(rows[4].value).toBe('4K');
+  });
+
+  it('数据里没有量时不生成成交量，也不影响原有的单轴结构', async () => {
+    const c = await mount(CANDLE_OPTION);
+    expect(c.norm.series).toHaveLength(1);
+    expect(c.norm.yAxes).toHaveLength(1);
+    expect(c.norm.yAxes[0].option.show).not.toBe(false);
   });
 });

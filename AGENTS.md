@@ -51,6 +51,37 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
 扩展字段（`candle` 与四个 `*Field`）不需要上游认识它们，就能一路到达系列组件与提示框。
 `toSerializableOption` 也是深度拷贝、保留所有键，所以它们同样能进快照。
 
+## 类目轴的两个硬约束（做交易图表必读）
+
+1. **类目是按字符串去重的**。`buildCategoryValues` 用 `String(value)` 做键，所以
+   「同一个标签出现两次」会把两根 K 线塌缩到同一个类目上 —— 表面看是「K 线叠在一起」，
+   实际是命中判定、十字光标、抬头全部错位。**多天数据的标签必须带日期**：跨度 ≥ 24h 时
+   写 `MM-DD HH:MM`，1D 写 `MM-DD`。示例页的 `labelOf()` 就是这么做的。
+2. **`BandScale.indexOf` 刻意不做「数值当类目下标」的退化**（`BandScale.ts:44-47`）。
+   成交量这类「派生系列」的数据项必须**带上和 K 线相同的 x**，只写 `{ value, color }`
+   在类目轴上会映射到 NaN、柱子整片消失。
+
+## 用浏览器验证前必须先 build
+
+示例页加载的是 `../dist/index.umd.js`（构建产物），而 jest 走 `src`。
+所以**改了 `src` 只跑 `npm test` 是假的绿灯**：浏览器里跑的还是旧包。
+真实链路验证的顺序是 `npm run build`（或 `npm run verify`，它含 build）→ 起服务 → 看页面。
+本项目已经因此误判过一次（`tooltip.trigger` 的默认值改了但页面没生效）。
+
+## 图表外壳由页面画（HTML 覆盖层）
+
+最新价线 / 右轴价签 / 左上角抬头 / 十字光标的两侧标签都走**页面 DOM**，不画进 canvas：
+
+- 读数用 `createOhlcReadout()`（引擎没有十字光标位置事件，它包了 `controller.hover` 与
+  `item:hover`/`item:leave`/`data:change`）；
+- 定位一律用 `src/project.ts` 的 `plotRect` / `priceToY` / `yToPrice` / `categoryToX`，
+  **不要用 `seriesComponent.pixelAt()`**（动画期间返回补间位置，实测踩过）；
+- 引擎自带的十字光标 y 标签固定在绘图区**左**边缘，价格轴在右时必须
+  `crosshair.showAxisLabel: false`，否则左边缘会多出一个价格标签；
+- `tooltip.show: false` **只关浮动提示框**，不影响悬停与十字光标（`trigger` 默认 `axis`，
+  即整列读数，抬头跟随光标靠它）；
+- 重排按**几何签名**增量写 DOM，别每帧无条件写（`a11y-mirror.html` 就是这个套路）。
+
 ## 价格轴为什么要自己钉（最容易踩的坑）
 
 `ice-chart` 的 `buildYDomain` 只收归一化后的 `y`（本包默认取收盘价字段），而
