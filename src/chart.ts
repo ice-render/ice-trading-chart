@@ -1,6 +1,7 @@
 import { createChart } from '@damoqiongqiu/ice-chart';
 import type { AxisOption, ChartOption, ICEChart, ICEChartOptions, SeriesOption, TooltipOption } from '@damoqiongqiu/ice-chart';
 import { computePriceRange } from './axisRange';
+import { resolveDpr } from './device';
 import { CANDLESTICK_TYPE, registerTradingSeries } from './register';
 import { createOhlcTooltipFormatter } from './tooltip';
 import type { CandleLabels, OhlcTooltipOptions } from './tooltip';
@@ -22,6 +23,13 @@ export interface TradingChartExtras {
   autoPriceRange?: boolean;
   /** 是否自动配成交量副图，默认 `true`。关掉相当于把 option 里的 `volume` 当不存在。 */
   autoVolume?: boolean;
+  /**
+   * 设备像素比。**不传就用 `window.devicePixelRatio`**（上限 3）。
+   *
+   * 引擎的 dpr 默认是 1，不传的话高分屏上画布是 1x 位图被浏览器放大，整张图发虚。
+   * 传 1 可以退回旧行为（比如截图对比或低端设备省显存）。
+   */
+  dpr?: number;
 }
 
 function isCandle(series: SeriesOption | undefined): series is TradingSeriesOption {
@@ -163,5 +171,9 @@ export function createTradingChart(
   chartOptions?: ICEChartOptions
 ): ICEChart {
   registerTradingSeries();
-  return createChart(target, toTradingOption(option, extras) as ChartOption, chartOptions);
+  const options: ICEChartOptions = {
+    ...(chartOptions || {}),
+    dpr: resolveDpr(chartOptions && chartOptions.dpr !== undefined ? chartOptions.dpr : extras.dpr),
+  };
+  return createChart(target, toTradingOption(option, extras) as ChartOption, options);
 }

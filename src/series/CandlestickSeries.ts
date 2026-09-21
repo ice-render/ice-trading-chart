@@ -12,6 +12,7 @@ export interface ResolvedCandleStyle {
   upColor: string;
   downColor: string;
   borderWidth: number;
+  hollowUp: boolean;
 }
 
 /** 把系列上的 `candle` 选项补成完整的样式。 */
@@ -21,6 +22,7 @@ export function resolveCandleStyle(option?: TradingSeriesOption | null): Resolve
     upColor: candle.upColor || DEFAULT_UP_COLOR,
     downColor: candle.downColor || DEFAULT_DOWN_COLOR,
     borderWidth: candle.borderWidth === undefined ? 1 : candle.borderWidth,
+    hollowUp: candle.hollowUp === true,
   };
 }
 
@@ -94,7 +96,27 @@ export class CandlestickSeries extends SeriesBase {
   private resolveBodyWidth(bandWidth: number): number {
     const raw = Number(this.series.option.barWidth);
     if (!isFinite(raw) || raw <= 0) return Math.max(2, bandWidth * 0.6);
-    return raw <= 1 ? Math.max(2, bandWidth * raw) : Math.max(2, raw * this.unit());
+    // ≤1 是「占 band 的比例」；>1 是绝对 CSS 像素
+    return raw <= 1 ? Math.max(2, bandWidth * raw) : Math.max(2, raw);
+  }
+
+  /**
+   * 一个 **CSS 像素**在当前 ctx 变换下的长度。
+   *
+   * ⚠️ 基类的 `unit()` 是「一个**设备**像素」的长度（`1/(vp.scale·dpr)`），不是 CSS 像素。
+   * 蜡烛的 `borderWidth` 按 CSS 像素给，所以在 dpr > 1 时必须再乘 dpr ——
+   * 否则 3 倍屏上影线只剩 1/3 像素宽，细得像头发丝。
+   */
+  private cssUnit(): number {
+    const ice: any = (this as any).ice;
+    const dpr = (ice && ice.dpr) || 1;
+    return this.unit() * dpr;
+  }
+
+  /** 把坐标对齐到设备像素边界（填充用；线用基类的 `snap`，它对齐的是像素中心）。 */
+  private snapFill(value: number): number {
+    const scale = 1 / this.unit();
+    return Math.round(value * scale) / scale;
   }
 
   protected doRender(): void {
@@ -106,7 +128,8 @@ export class CandlestickSeries extends SeriesBase {
     const style = resolveCandleStyle(option);
     const upColor = style.upColor;
     const downColor = style.downColor;
-    const borderWidth = Math.max(unit, style.borderWidth * unit);
+    const borderWidth = Math.max(unit, style.borderWidth * this.cssUnit());
+    const hollow = style.hollowUp;
     const bandWidth = coord.xScale.bandwidth() || coord.xScale.step() * 0.6;
     const bodyWidth = this.resolveBodyWidth(bandWidth);
     const rects = this.candleRects();
@@ -115,6 +138,9 @@ export class CandlestickSeries extends SeriesBase {
     this.computeItemProgress();
 
     this.beginDraw();
+    // 影线要的是「平头细线」，圆头会让它看起来像胶囊（beginDraw 已 save，endDraw 会还原）
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'miter';
     for (let i = 0; i < this.series.points.length; i++) {
       const point = this.series.points[i];
       const rect = rects[i];
@@ -134,27 +160,39 @@ export class CandlestickSeries extends SeriesBase {
       const yMid = yOpen;
       const lerp = (target: number) => yMid + (target - yMid) * p;
 
-      // 影线
+      const yCloseAnimated = lerp(yClose);
+      const left = this.snapFill(centerX - bodyWidth / 2);
+      const right = this.snapFill(centerX + bodyWidth / 2);
+      const top = this.snapFill(Math.min(yOpen, yCloseAnimated));
+      const bottom = this.snapFill(Math.max(yOpen, yCloseAnimated));
+      const width = Math.max(1, right - left);
+      const height = Math.max(1, bottom - top);
+
+      // 影线：**只画实体上下两段**，不从实体中间穿过去。
+      // 实心实体虽然会盖住中间那段，但空心阳线会把中间露出来 —— 一条竖线穿过蜡烛正中，
+      // 看起来像画错了。对齐到设备像素中心 + butt 端头，1px 线才不发虚、也不像胶囊。
+      const wickX = this.snap(centerX);
       ctx.beginPath();
-      ctx.moveTo(centerX, lerp(yHigh));
-      ctx.lineTo(centerX, lerp(yLow));
+      ctx.moveTo(wickX, lerp(yHigh));
+      ctx.lineTo(wickX, top);
+      ctx.moveTo(wickX, bottom);
+      ctx.lineTo(wickX, lerp(yLow));
       ctx.strokeStyle = color;
       ctx.lineWidth = borderWidth;
       ctx.stroke();
 
-      // 实体：统一描边 + 填充同色，涨的填充更浅（相邻蜡烛更容易分辨）
-      const yCloseAnimated = lerp(yClose);
-      const top = Math.min(yOpen, yCloseAnimated);
-      const height = Math.max(borderWidth, Math.abs(yCloseAnimated - yOpen));
-      ctx.beginPath();
-      ctx.rect(centerX - bodyWidth / 2, top, bodyWidth, height);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = rising ? 0.55 : 0.95;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = borderWidth;
-      ctx.stroke();
+      if (hollow && rising && width > borderWidth && height > borderWidth) {
+        // 空心阳线：描边内缩半个线宽，外沿仍等于实体宽
+        const half = borderWidth / 2;
+        ctx.beginPath();
+        ctx.rect(left + half, top + half, width - borderWidth, height - borderWidth);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = borderWidth;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = color;
+        ctx.fillRect(left, top, width, height);
+      }
     }
     // 悬停：蜡烛实体叠一层高亮描边（不改宽高 —— 改了命中区域就会和渲染分叉）
     if (this.hoverIndex !== null) {

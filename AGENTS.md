@@ -115,6 +115,32 @@ ice-chart 归一化时把 `y === null` 的点写成 `top: 0`（`normalize.ts`）
 最容易写错的是把 `static round2()` 这类工具方法顺手写在构造函数后面 —— 棘轮判成
 `S*F*C*T*...` 直接失败（本项目连踩三次）。写新页面时先把 static 段落收齐再写字段。
 
+## 高分屏必须显式传 dpr（引擎默认 1）
+
+`ICE.dpr` 默认是 **1**，引擎**不会**自己去读 `window.devicePixelRatio`
+（`ICEChartOptions.dpr` 存在，但不传就是 1）。不传的后果不是「稍微糊一点」：
+画布的 backing store 只有 CSS 尺寸，浏览器把 1x 位图放大 2~3 倍显示 ——
+轴线、刻度、K 线、文字**全都发虚**（全家族 30 个示例都没传，实测踩到）。
+
+本包已经**默认补上**：`createTradingChart` / `createPaneStack` 不传 `dpr` 时取
+`window.devicePixelRatio`（上限 3，见 `src/device.ts`），显式传 `dpr: 1` 可退回旧行为。
+
+## `unit()` 是「设备像素」不是「CSS 像素」
+
+基类 `ChartComponent.unit()` 的定义是「一个**设备**像素在当前 ctx 变换下的长度」
+（`1/(vp.scale·dpr)`）。所以 `style.borderWidth * unit()` 得到的是 **borderWidth 个设备像素**：
+dpr = 1 时看着正好，dpr = 3 时只剩 1/3 个 CSS 像素 —— 细得像头发丝。
+要按 CSS 像素给线宽必须再乘 dpr，蜡烛里封成了 `cssUnit()`（= `unit() * dpr`）。
+
+同理，填充类几何要对齐**设备像素边界**（`Math.round(v/unit())*unit()`），
+而 1px 线要对齐**像素中心**（基类 `snap()` 已经做了）。
+
+## 影线不能从实体中间穿过去
+
+蜡烛的影线要画成**实体上下两段**（`high → 实体上沿`、`实体下沿 → low`），
+不能一条线从 high 贯到 low：实心实体盖得住，**空心阳线会把中间那段露出来** ——
+一条竖线穿过蜡烛正中，看起来像画错了（用户实测反馈）。
+
 ## 价格轴为什么要自己钉（最容易踩的坑）
 
 `ice-chart` 的 `buildYDomain` 只收归一化后的 `y`（本包默认取收盘价字段），而

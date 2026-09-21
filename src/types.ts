@@ -3,11 +3,14 @@ import type { ChartOption, SeriesOption } from '@damoqiongqiu/ice-chart';
 /** 四个价，顺序固定为 [开, 收, 低, 高]（与惯例一致）。 */
 export type Ohlc = [number, number, number, number];
 
-/** 涨跌配色。红涨绿跌是默认值（国内习惯），国际习惯反过来就自己传。 */
+/** 蜡烛样式。红涨绿跌是默认值（国内习惯），国际习惯反过来就自己传。 */
 export interface CandleStyle {
   upColor?: string;
   downColor?: string;
+  /** 影线与空心描边的线宽，**单位是 CSS 像素**，默认 1。 */
   borderWidth?: number;
+  /** 阳线画空心（只描边不填充）。默认 false = 涨跌都实心。 */
+  hollowUp?: boolean;
 }
 
 /** 数据项的字段名配置。 */

@@ -2,6 +2,7 @@ import { DARK_CHART_THEME, LIGHT_CHART_THEME, createChart, linkCharts } from '@d
 import type { AxisOption, ChartOption, ChartTheme, ICEChart } from '@damoqiongqiu/ice-chart';
 import type { ChartLinkHandle } from '@damoqiongqiu/ice-chart';
 import { createTradingChart, toTradingOption } from './chart';
+import { resolveDpr } from './device';
 import type { TradingChartOption } from './types';
 
 /**
@@ -65,6 +66,8 @@ export interface PaneStackOptions {
   theme?: 'light' | 'dark' | Partial<ChartTheme>;
   /** 是否联动 hover / zoom / pan / brush，默认 true。 */
   link?: boolean;
+  /** 设备像素比，默认取 `window.devicePixelRatio`（上限 3）。各 pane 用同一个值。 */
+  dpr?: number;
 }
 
 export interface PaneStack {
@@ -128,6 +131,7 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
   const gap = options.gap === undefined ? 8 : options.gap;
   const chars = options.axisLabelChars === undefined ? DEFAULT_AXIS_LABEL_CHARS : options.axisLabelChars;
   const theme = baseTheme(options.theme);
+  const dpr = resolveDpr(options.dpr);
   const host = container;
   const created: Array<{ spec: PaneSpec; holder: HTMLDivElement; canvas: HTMLCanvasElement; chart: ICEChart; current: ChartOption }> = [];
 
@@ -165,8 +169,8 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     // primary 走 createTradingChart（内部会再补一层交易语义：yField / 影线量程 / 提示框），
     // 其余 pane 直接 createChart —— 副图不需要 K 线那套补齐。
     const chart = spec.primary
-      ? createTradingChart(canvas, prepared as TradingChartOption, (spec.extras || {}) as never)
-      : createChart(canvas, prepared);
+      ? createTradingChart(canvas, prepared as TradingChartOption, (spec.extras || {}) as never, { dpr })
+      : createChart(canvas, prepared, { dpr });
 
     created.push({ spec, holder, canvas, chart, current: prepared });
   });

@@ -189,6 +189,7 @@
         <div class="chart-bar">
           <button class="btn on" id="btn-ma">MA</button>
           <button class="btn" id="btn-boll">BOLL</button>
+          <button class="btn" id="btn-hollow">阳线空心</button>
           <span class="sep"></span>
           <button class="btn on" data-pane="macd">MACD</button>
           <button class="btn" data-pane="rsi">RSI</button>
@@ -340,6 +341,7 @@
         marginMode = 'cross';
         scheme = 'redUp';
         indicators = { ma: true, boll: false };
+        hollow = false;
         paneKind = 'macd';
         position = null;
         orders = [];
@@ -379,7 +381,13 @@
             name: '价格',
             data: this.candles,
             barWidth: 0.66,
-            candle: { upColor: this.upColor, downColor: this.downColor, borderWidth: 1 },
+            candle: {
+              upColor: this.upColor,
+              downColor: this.downColor,
+              borderWidth: 1,
+              // 阳线空心（只描边不填充）：国内传统画法，看涨跌构成更直观
+              hollowUp: this.hollow,
+            },
           };
         }
 
@@ -583,6 +591,11 @@
           });
           document.getElementById('btn-ma').addEventListener('click', (event) => this.toggleIndicator('ma', event.target));
           document.getElementById('btn-boll').addEventListener('click', (event) => this.toggleIndicator('boll', event.target));
+          document.getElementById('btn-hollow').addEventListener('click', (event) => {
+            this.hollow = !this.hollow;
+            event.target.classList.toggle('on', this.hollow);
+            this.invalidate();
+          });
           for (const button of document.querySelectorAll('[data-pane]')) {
             button.addEventListener('click', () => {
               this.paneKind = button.getAttribute('data-pane');
