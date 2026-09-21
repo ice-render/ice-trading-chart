@@ -42,7 +42,18 @@ export interface TradingChartExtras {
 }
 
 function isCandle(series: SeriesOption | undefined): series is TradingSeriesOption {
-  return !!series && series.type === CANDLESTICK_TYPE;
+  // `renderAs` 也算 K 线：换了渲染类型（线 / 面积）之后，交易语义还得按 K 线走
+  return !!series && (series.type === CANDLESTICK_TYPE || !!(series as TradingSeriesOption).renderAs);
+}
+
+/** 按 `renderAs` 把 K 线系列换成引擎内置的折线 / 面积（语义不动）。 */
+function renderSeriesList(seriesList: TradingSeriesOption[]): SeriesOption[] {
+  return seriesList.map((series) => {
+    if (!isCandle(series)) return series as SeriesOption;
+    const renderAs = series.renderAs;
+    if (!renderAs || renderAs === CANDLESTICK_TYPE) return series as SeriesOption;
+    return { ...series, type: renderAs } as SeriesOption;
+  });
 }
 
 /** 只补没写的 min / max，用户显式给的那一侧不动。 */
@@ -73,7 +84,7 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
     return { ...series, yField: series.yField || closeField };
   }) as TradingSeriesOption[];
 
-  const next: ChartOption = { ...option, series: seriesList as SeriesOption[] };
+  const next: ChartOption = { ...option, series: renderSeriesList(seriesList) };
   delete (next as unknown as Record<string, unknown>).volume;
 
   if (!next.xAxis) {
@@ -101,7 +112,7 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
     }
   }
   if (volumeSeries) {
-    next.series = [...seriesList, volumeSeries] as SeriesOption[];
+    next.series = [...renderSeriesList(seriesList), volumeSeries] as SeriesOption[];
   }
 
   // ---- y 轴：价格轴（钉含影线的范围）+ 成交量轴（钉带宽）

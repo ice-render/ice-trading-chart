@@ -822,16 +822,19 @@ test.describe('K 线终端示例页', () => {
     const panel = (id: string) => page.evaluate((menu) => getComputedStyle(document.getElementById(`panel-${menu}`)!).display, id);
 
     const start = await triggers();
-    expect(start.map((item) => item.menu)).toEqual(['intervals', 'indicators', 'drawings', 'display']);
+    expect(start.map((item) => item.menu)).toEqual(['intervals', 'type', 'indicators', 'drawings', 'display']);
     for (const item of start) {
       expect(item.icons, `${item.menu} 是图标按钮`).toBe(1);
       expect(item.title, `${item.menu} 有悬停提示`).toBeTruthy();
     }
     // 只有「周期」那一个带文字（周期本身是文字信息），其余三个是纯图标
     expect(start.filter((item) => item.text).map((item) => item.text)).toEqual(['5m']);
-    // 指标默认开着 MA → 图标上带状态点
-    expect(start[1].on).toBe(true);
-    expect(start[2].on, '没武装画线工具时不点状态点').toBe(false);
+    // 按菜单名取，别按下标（列表随时会插新图标）
+    const byMenu = (items: Array<{ menu: string | null }>, name: string) => items.find((item) => item.menu === name)!;
+    // 指标默认开着 MA → 图标上带状态点；还没武装画线工具 → 不点
+    expect(byMenu(start, 'indicators').on).toBe(true);
+    expect(byMenu(start, 'drawings').on).toBe(false);
+    expect(byMenu(start, 'type').on, '默认是蜡烛，不点状态点').toBe(false);
 
     await page.click('.tb-menu[data-menu="indicators"] .tb-trigger');
     expect(await panel('indicators'), '点图标展开面板').toBe('block');
@@ -850,7 +853,7 @@ test.describe('K 线终端示例页', () => {
     await page.click('#panel-drawings [data-tool="trend"]');
     await page.waitForTimeout(150);
     const armed = await triggers();
-    expect(armed[2], '武装画线工具时点状态点').toMatchObject({ on: true });
+    expect(byMenu(armed, 'drawings'), '武装画线工具时点状态点').toMatchObject({ on: true });
     expect(await panel('drawings'), '选工具后自动收起').toBe('none');
     await page.keyboard.press('Escape');
 
@@ -859,6 +862,195 @@ test.describe('K 线终端示例页', () => {
     await page.waitForTimeout(300);
     expect(await page.evaluate(() => document.querySelector('.tb-trigger [data-tb="interval"]')!.textContent)).toBe('15m');
     expect(await page.evaluate(() => (window as any).__page.intervalKey)).toBe('15m');
+  });
+
+  test('图表类型：折线 / 面积只换渲染，交易语义（影线量程 / 成交量 / 抬头）不动', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    const state = () =>
+      page.evaluate(() => {
+        const pg = (window as any).__page;
+        const chart = pg.stack.chartOf('price');
+        const axis = chart.getOption().yAxis;
+        const option = Array.isArray(axis) ? axis[0] : axis;
+        return {
+          chartType: pg.chartType,
+          seriesTypes: (chart.getOption().series || []).map((s: any) => s.type),
+          yMin: option.min,
+          yMax: option.max,
+          volumeSeries: (pg.stack.chartOf('volume').getOption().series || []).length,
+          close: document.querySelector('.ohlc [data-k="close"]')!.textContent,
+        };
+      });
+
+    const candle = await state();
+    expect(candle.seriesTypes[0]).toBe('candlestick');
+    expect(candle.close).toMatch(/\d+\.\d{2}/);
+
+    const pick = async (type: string) => {
+      await page.click('.tb-menu[data-menu="type"] .tb-trigger');
+      await page.waitForTimeout(120);
+      await page.click(`#panel-type [data-type="${type}"]`);
+      await page.waitForTimeout(450);
+      return state();
+    };
+
+    const line = await pick('line');
+    expect(line.chartType).toBe('line');
+    expect(line.seriesTypes[0], '主图换成折线').toBe('line');
+    expect(line.yMin, '影线量程照旧（不是只用收盘价）').toBeLessThanOrEqual(candle.yMin + 1e-6);
+    expect(line.yMax).toBeGreaterThanOrEqual(candle.yMax - 1e-6);
+    expect(line.volumeSeries, '成交量副图照旧').toBe(candle.volumeSeries);
+    expect(line.close, '抬头照旧读得出开高低收').toMatch(/\d+\.\d{2}/);
+
+    expect((await pick('area')).seriesTypes[0]).toBe('area');
+    expect((await pick('hollow')).seriesTypes[0]).toBe('candlestick');
+    expect((await pick('candle')).chartType).toBe('candle');
+  });
+
+  test('价格轴右键菜单：线性 / 对数 / 百分比 / 自动量程', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    const at = await rulerPoint(page, 'price');
+
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => document.getElementById('ctx-menu')!.classList.contains('open'))).toBe(true);
+
+    await page.click('#ctx-menu [data-scale="percent"]');
+    await page.waitForTimeout(400);
+    const percent = await tickState(page);
+    expect(percent.labels.length).toBeGreaterThan(3);
+    for (const label of percent.labels) expect(label.trim()).toMatch(/^[+-]\d+\.\d{2}%$/);
+    expect(percent.aligned, '百分比坐标下三块 pane 仍然等宽').toBe(true);
+
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await page.click('#ctx-menu [data-scale="log"]');
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => (window as any).__page.stack.chartOf('price').getOption().yAxis.type)).toBe('log');
+
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await page.click('#ctx-menu [data-scale="linear"]');
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => (window as any).__page.stack.chartOf('price').getOption().yAxis.type)).not.toBe('log');
+
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await page.click('#ctx-menu [data-scale="auto"]');
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => document.getElementById('s-hint')!.textContent)).toContain('自适应');
+  });
+
+  test('指标参数可改：MACD 快线 6 → 副图与图例跟着走', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    await page.click('.tb-menu[data-menu="indicators"] .tb-trigger');
+    await page.waitForTimeout(150);
+    const input = page.locator('#panel-indicators [data-param="macdFast"]');
+    await input.fill('6');
+    await input.press('Enter');
+    await page.waitForTimeout(500);
+
+    expect(await page.evaluate(() => (window as any).__page.macdParams.fast)).toBe(6);
+    expect(await page.evaluate(() => document.getElementById('panel-indicators')!.textContent)).toContain('MACD(6,26,9)');
+    expect(
+      await page.evaluate(() => document.querySelector('.pane-title[data-pane="indicator"]')!.textContent)
+    ).toContain('MACD6 26 9');
+    // 慢线必须比快线长：填一个比快线还小的慢线会被抬到 fast + 1
+    const slow = page.locator('#panel-indicators [data-param="macdSlow"]');
+    await slow.fill('3');
+    await slow.press('Enter');
+    await page.waitForTimeout(300);
+    const params = await page.evaluate(() => (window as any).__page.macdParams);
+    expect(params.slow).toBeGreaterThan(params.fast);
+  });
+
+  test('左侧画线图标条：选中态 / Esc 退出 / 清空', async ({ page }) => {
+    const tools = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('.draw-tool')).map((node) => node.getAttribute('data-tool') || node.getAttribute('data-action'))
+    );
+    expect(tools).toEqual(['trend', 'hline', 'vline', 'rect', 'delete', 'clear']);
+
+    await page.click('#draw-bar [data-tool="trend"]');
+    await page.waitForTimeout(200);
+    const armed = await page.evaluate(() => ({
+      mode: (window as any).__page.drawing.mode(),
+      active: Array.from(document.querySelectorAll('.draw-tool.on')).map((node) => node.getAttribute('data-tool')),
+      hint: document.getElementById('s-hint')!.textContent,
+    }));
+    expect(armed.mode).toBe('trend');
+    expect(armed.active).toEqual(['trend']);
+
+    // Esc 退出（主流看盘软件里 Esc 就是取消当前绘制）
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => (window as any).__page.drawing.mode())).toBeNull();
+    expect(await page.evaluate(() => document.querySelectorAll('.draw-tool.on').length)).toBe(0);
+  });
+
+  test('磁吸 / 均量线 / 会话分隔线三个开关都真的生效', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+
+    // 均量线：量图上多了两条线系列，关掉就没了
+    const volumeSeries = () =>
+      page.evaluate(() => (window as any).__page.stack.chartOf('volume').getOption().series.map((s: any) => s.id));
+    expect(await volumeSeries()).toContain('v__ma5');
+    expect(await volumeSeries()).toContain('v__ma10');
+
+    // 会话分隔线：落在绘图区里的淡竖线
+    const session = () =>
+      page.evaluate(() => {
+        const pg = (window as any).__page;
+        const plot = pg.stack.chartOf('price').layout.plot;
+        return Array.from(document.querySelectorAll('.session-layer i')).map((node) => ({
+          left: parseFloat((node as HTMLElement).style.left),
+          top: parseFloat((node as HTMLElement).style.top),
+          height: parseFloat((node as HTMLElement).style.height),
+          plot,
+        }));
+      });
+    const lines = await session();
+    expect(lines.length).toBeGreaterThanOrEqual(1);
+    for (const line of lines) {
+      expect(line.left).toBeGreaterThanOrEqual(line.plot.x);
+      expect(line.left).toBeLessThanOrEqual(line.plot.x + line.plot.width);
+      expect(line.height).toBeGreaterThan(line.plot.height);
+    }
+
+    // 磁吸：价签吸到这一根的开高低收上（关掉时是指针自己的价格）
+    const at = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const host = document.getElementById('panes')!.getBoundingClientRect();
+      const plot = pg.stack.chartOf('price').layout.plot;
+      return {
+        x: Math.round(host.left + pg.chromeOrigin.x + plot.x + plot.width * 0.7),
+        y: Math.round(host.top + pg.chromeOrigin.y + plot.y + plot.height * 0.42),
+      };
+    });
+    await page.mouse.move(at.x, at.y);
+    await page.waitForTimeout(200);
+    const plain = await page.evaluate(() => document.querySelector('.tag.price')!.textContent);
+
+    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
+    await page.click('#panel-display [data-display="magnet"]');
+    await page.mouse.move(at.x, at.y);
+    await page.waitForTimeout(200);
+    const snapped = await page.evaluate(() => document.querySelector('.tag.price')!.textContent);
+    expect(await page.evaluate(() => (window as any).__page.magnet)).toBe(true);
+    expect(snapped).not.toBe(plain);
+    const prices = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const reading = pg.readout.read();
+      return [reading.open, reading.high, reading.low, reading.close].map((value: number) => value.toFixed(2));
+    });
+    expect(prices, '磁吸到的必须是这一根的开高低收之一').toContain(snapped);
+
+    // 三个开关都能关掉（面板在勾选时保持展开，跟指标那组一个套路）
+    await page.click('#panel-display [data-display="volumeMa"]');
+    await page.click('#panel-display [data-display="sessionLines"]');
+    await page.waitForTimeout(300);
+    expect(await volumeSeries()).not.toContain('v__ma5');
+    expect((await session()).length).toBe(0);
   });
 
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {

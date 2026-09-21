@@ -46,9 +46,20 @@ export interface CandleDatum {
  * `candle` 与四个字段名都是**本包自己的**扩展字段：ice-chart 不认识它们，
  * 但 `InternalSeries.option` 是原始 option 对象的引用，所以会原样到达系列组件与提示框。
  */
+/**
+ * K 线的**渲染类型**（与 `type: 'candlestick'` 的**交易语义**分开）。
+ *
+ * 语义（影线量程、成交量副图、OHLC 提示框 / 抬头）永远按 K 线算，这里只决定**画成什么**：
+ * `line` / `area` 走引擎内置的折线 / 面积系列（读收盘价），价格轴、成交量、提示框都不受影响 ——
+ * 切换图表类型不该让用户丢掉任何读数。
+ */
+export type CandleRenderType = 'candlestick' | 'line' | 'area';
+
 export interface TradingSeriesOption extends SeriesOption, CandleFieldOptions {
   /** 涨跌配色。 */
   candle?: CandleStyle;
+  /** 画成什么，默认 `candlestick`（蜡烛）。见 `CandleRenderType`。 */
+  renderAs?: CandleRenderType;
 }
 
 export interface TradingChartOption extends Omit<ChartOption, 'series'> {

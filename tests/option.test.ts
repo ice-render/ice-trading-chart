@@ -130,6 +130,33 @@ describe('toTradingOption', () => {
     const axis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis!;
     expect(axis.formatter).toBe(mine);
   });
+
+  it('renderAs：只换渲染类型，交易语义（yField / 影线量程 / 成交量 / 提示框）一样都不少', () => {
+    const option = toTradingOption(
+      {
+        ...CANDLE,
+        series: [{ ...CANDLE.series[0], renderAs: 'line' }],
+      },
+      { autoVolume: true }
+    );
+    const series = option.series as any[];
+    // 画成折线、但还是读收盘价
+    expect(series[0].type).toBe('line');
+    expect(series[0].yField).toBe('c');
+    // 影线量程照旧（收盘价 100~120，影线 95~125）
+    const axis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis!;
+    expect(axis.min).toBeLessThanOrEqual(95);
+    expect(axis.max).toBeGreaterThanOrEqual(125);
+    // 成交量照旧来自 K 线数据（CANDLE 里没有量，所以这里只断言提示框装了 OHLC formatter）
+    expect(typeof option.tooltip!.formatter).toBe('function');
+  });
+
+  it('renderAs：area 走面积系列，缺省仍是蜡烛', () => {
+    const area = toTradingOption({ ...CANDLE, series: [{ ...CANDLE.series[0], renderAs: 'area' }] });
+    expect((area.series as any[])[0].type).toBe('area');
+    const plain = toTradingOption(CANDLE);
+    expect((plain.series as any[])[0].type).toBe('candlestick');
+  });
 });
 
 describe('formatPrice', () => {

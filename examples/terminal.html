@@ -126,6 +126,34 @@
       }
       .tb-menu.open .tb-panel { display: block; }
       .tb-title { padding: 3px 7px; color: var(--muted); font-size: 10px; }
+      /* 指标参数：小号数字输入（改完回车 / 失焦生效） */
+      .tb-param { display: flex; align-items: center; gap: 5px; padding: 3px 7px; color: var(--dim); font-size: 11px; }
+      .tb-param input {
+        width: 46px; background: #0b1119; border: 1px solid var(--line); border-radius: 3px;
+        color: var(--text); padding: 2px 4px; font: 11px/1.4 var(--mono);
+      }
+      /* 价格轴右键菜单 */
+      .ctx-menu {
+        position: fixed; z-index: 60; display: none; min-width: 148px; padding: 5px;
+        background: #131b26; border: 1px solid #2a3646; border-radius: 5px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); font-size: 11px; color: #a8b4c2;
+      }
+      .ctx-menu.open { display: block; }
+      /* 左侧画线图标条（主流看盘软件把画线工具放在图表左边缘，竖排图标） */
+      .chart-body { display: flex; align-items: stretch; min-height: 0; }
+      .draw-bar {
+        width: 42px; flex: 0 0 42px; display: flex; flex-direction: column; align-items: center;
+        gap: 2px; padding: 6px 0; border-right: 1px solid var(--line-soft); background: var(--panel-2);
+      }
+      .draw-bar .spacer { flex: 1; }
+      .draw-tool {
+        width: 30px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+        background: none; border: 1px solid transparent; border-radius: 4px; color: #a8b4c2; cursor: pointer;
+      }
+      .draw-tool:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+      .draw-tool.on { background: rgba(59, 130, 246, 0.18); color: #fff; }
+      .draw-tool svg { width: 16px; height: 16px; }
+      .chart-main { flex: 1; min-width: 0; }
       .tb-item {
         display: flex; align-items: center; gap: 7px; padding: 4px 7px;
         border-radius: 3px; cursor: pointer; font-size: 11px; color: #a8b4c2; white-space: nowrap;
@@ -172,6 +200,9 @@
       .pane-title .up { color: var(--up); }
       .pane-title .down { color: var(--down); }
       /* 主图的水印：大号淡字，压在 K 线下面（主流看盘软件的样子） */
+      /* 会话分隔线：每天第一根上的淡竖线（画在外壳层里，颜色极淡） */
+      .session-layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+      .session-layer i { position: absolute; width: 0; border-left: 1px solid rgba(255, 255, 255, 0.055); }
       .watermark {
         transform: translate(-50%, -50%); font-size: 46px; font-weight: 600; letter-spacing: 3px;
         color: rgba(223, 231, 239, 0.05); white-space: nowrap; pointer-events: none;
@@ -218,6 +249,8 @@
     </style>
   </head>
   <body>
+    <!-- 价格轴右键菜单（贴在指针位置；挂在 body 上，因为图表外壳那一层是 pointer-events:none） -->
+    <div class="ctx-menu" id="ctx-menu"></div>
     <header class="topbar">
       <div class="symbol">SYN/USDT<small>永续</small></div>
       <div class="stat"><span>最新价</span><b class="last" id="t-last">-</b></div>
@@ -246,6 +279,18 @@
               <b class="lbl" data-tb="interval">5m</b>
             </button>
             <div class="tb-panel" id="panel-intervals"></div>
+          </div>
+          <span class="sep"></span>
+          <div class="tb-menu" data-menu="type">
+            <button class="tb-trigger" type="button" title="图表类型" aria-label="图表类型">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+                <path d="M5 2.4v11.2M11 3.4v9.2" stroke-linecap="round" />
+                <rect x="3.3" y="5" width="3.4" height="6" rx="0.4" fill="currentColor" stroke="none" />
+                <rect x="9.3" y="5.8" width="3.4" height="4.4" rx="0.4" fill="currentColor" stroke="none" />
+              </svg>
+              <i class="dot"></i>
+            </button>
+            <div class="tb-panel" id="panel-type"></div>
           </div>
           <span class="sep"></span>
           <div class="tb-menu" data-menu="indicators">
@@ -280,13 +325,19 @@
           </div>
           <span class="readout" id="readout">-</span>
         </div>
-        <div id="panes"></div>
-        <div class="chart-foot">
-          <span>收盘倒计时 <b id="s-countdown">--:--</b></span>
-          <span>下一根 <b id="s-next">-</b></span>
-          <span>已推送 <b id="s-pushed">0</b></span>
-          <span>fps <b id="s-fps">0</b></span>
-          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane · 标尺：上下拖 / 滚轮缩放、双击自适应 · 时间轴双击回到最新 · 键盘：←→ 平移、↑↓ 价格轴、+/- 时间轴、Home 回到最新</span>
+        <div class="chart-body">
+          <!-- 左侧画线图标条（主流看盘软件的样子：竖排图标，选中态高亮） -->
+          <div class="draw-bar" id="draw-bar"></div>
+          <div class="chart-main">
+            <div id="panes"></div>
+            <div class="chart-foot">
+              <span>收盘倒计时 <b id="s-countdown">--:--</b></span>
+              <span>下一根 <b id="s-next">-</b></span>
+              <span>已推送 <b id="s-pushed">0</b></span>
+              <span>fps <b id="s-fps">0</b></span>
+              <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane · 标尺：上下拖 / 滚轮缩放、双击自适应、右键菜单 · 键盘：←→ 平移、↑↓ 价格轴、+/- 时间轴、Home 回到最新</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -531,6 +582,14 @@
           return ICETradingChart.formatPct(value);
         }
 
+        /** 小数比率 → 带符号百分比（+1.23%）。价格轴的「百分比坐标」与价签共用。 */
+        static pctLabel(ratio) {
+          if (!isFinite(ratio)) return '-';
+          const value = ratio * 100;
+          const sign = value > 0 ? '+' : '';
+          return `${sign}${value.toFixed(2)}%`;
+        }
+
         candles = [];
         stack = null;
         drawing = null;
@@ -555,7 +614,27 @@
         marginMode = 'cross';
         scheme = 'redUp';
         indicators = { ma: true, ema: false, boll: false };
-        hollow = false;
+        /**
+         * 图表类型：`candle` 蜡烛 / `hollow` 空心蜡烛 / `line` 折线 / `area` 面积。
+         *
+         * 线和面积只换**渲染**（走 `renderAs`），交易语义一样不少 —— 影线量程、成交量副图、
+         * OHLC 抬头 / 提示框照旧按 K 线算，切类型不会丢掉任何读数。
+         */
+        chartType = 'candle';
+        /** 价格轴坐标：`linear` 线性 / `log` 对数 / `percent` 百分比（相对可见窗口第一根）。 */
+        priceScale = 'linear';
+        /** 十字光标磁吸：横线吸附到最近的开 / 高 / 低 / 收。 */
+        magnet = false;
+        /** 量图上的均量线（MA5 / MA10）。 */
+        volumeMa = true;
+        /** 跨天的会话分隔线。 */
+        sessionLines = true;
+        /** 指标参数（「指标」面板里可改）。 */
+        macdParams = { fast: 12, slow: 26, signal: 9 };
+        rsiPeriod = 14;
+        maPeriods = [7, 25];
+        emaPeriods = [12, 26];
+        bollPeriod = 20;
         favorites = TerminalPage.DEFAULT_FAVORITES.slice();
         customIntervals = {};
         customFormOpen = false;
@@ -613,9 +692,11 @@
         follow = true;
         /** 覆盖层原点相对 `#panes` 的偏移（`#panes` 有内边距，必须显式对齐）。 */
         chromeOrigin = { x: 0, y: 0 };
-        /** 副图图例的指标值（按「数据 + 周期 + 副图类型」缓存，指针移动时不必重算 O(n)）。 */
+        /** 副图图例的指标值（按「数据 + 周期 + 参数 + 副图类型」缓存，指针移动时不必重算 O(n)）。 */
         paneKey = '';
         paneValue = null;
+        /** 会话分隔线的几何签名（视窗一变就重建那几条线）。 */
+        sessionSig = '';
         /** 主图画布的 CSS 尺寸。 */
         canvasBox = { width: 0, height: 0 };
         /** 每块 pane 相对**主图画布顶部**的偏移与高度（指针落在哪一块 + 横线画在哪一行）。 */
@@ -638,6 +719,11 @@
           this.fpsAt = performance.now();
         }
 
+        /** 阳线空心 = 图表类型选了「空心蜡烛」。 */
+        get hollow() {
+          return this.chartType === 'hollow';
+        }
+
         get upColor() {
           return this.scheme === 'redUp' ? '#f04438' : '#12b76a';
         }
@@ -652,7 +738,7 @@
         }
 
         get candleSeries() {
-          return {
+          const series = {
             id: 'k',
             type: 'candlestick',
             name: '价格',
@@ -667,6 +753,10 @@
               hollowUp: this.hollow,
             },
           };
+          if (this.chartType === 'line' || this.chartType === 'area') {
+            return { ...series, renderAs: this.chartType, color: this.upColor, lineWidth: 1.4 };
+          }
+          return series;
         }
 
         /**
@@ -710,7 +800,7 @@
          */
         get paneIndicator() {
           const source = this.indicatorSource;
-          const key = `${source.data.length}|${this.intervalKey}|${this.paneKind}`;
+          const key = `${source.data.length}|${this.intervalKey}|${this.paneKind}|${this.macdParams.fast},${this.macdParams.slow},${this.macdParams.signal}|${this.rsiPeriod}`;
           if (this.paneKey === key && this.paneValue) return this.paneValue;
           this.paneKey = key;
           const closes = ICETradingChart.closeSeries(source);
@@ -724,9 +814,9 @@
         /** 主图叠加（在渲染窗口的真实 K 上算）。 */
         get overlaySeries() {
           const spec = {};
-          if (this.indicators.ma) spec.ma = [7, 25];
-          if (this.indicators.ema) spec.emaPeriods = [12, 26];
-          if (this.indicators.boll) spec.boll = { period: 20, multiplier: 2 };
+          if (this.indicators.ma) spec.ma = this.maPeriods.slice();
+          if (this.indicators.ema) spec.emaPeriods = this.emaPeriods.slice();
+          if (this.indicators.boll) spec.boll = { period: this.bollPeriod, multiplier: 2 };
           return ICETradingChart.createOverlaySeries(this.indicatorSource, spec);
         }
 
@@ -743,10 +833,42 @@
             // 三块 pane 的左右 margin 必须一致，绘图区才能严格对齐；
             // 上下 margin 各自收紧（画布上下各 12px 的默认留白在三块 pane 间会白吃 48px）
             margin: { top: 10, right: 16, bottom: 2, left: 12 },
-            yAxis: { position: 'right', ...this.visiblePriceRange() },
+            yAxis: { position: 'right', ...this.visiblePriceRange(), ...this.priceScaleAxis() },
             volume: false,
             series: [this.candleSeries].concat(this.overlaySeries),
           };
+        }
+
+        /**
+         * 价格轴坐标：线性（默认）/ 对数 / 百分比。
+         *
+         * 百分比**只改标签口径**（以可见窗口第一根的收盘为基准），几何仍是价格 ——
+         * 引擎的刻度位置是按数据域取整出来的，我们没法把刻度挪到整数百分比上；
+         * 这是当前引擎能力下的口径，页面里写清楚（AGENTS 也记了一条）。
+         */
+        priceScaleAxis() {
+          if (this.priceScale === 'log') return { type: 'log' };
+          if (this.priceScale === 'percent') {
+            const base = this.percentBase();
+            return { formatter: (value) => TerminalPage.pctLabel(Number(value) / base - 1) };
+          }
+          return {};
+        }
+
+        /** 百分比坐标的基准价：可见窗口**第一根**的收盘（主流看盘软件的口径）。 */
+        percentBase() {
+          const rows = this.visibleCandles();
+          for (const row of rows) {
+            if (typeof row.c === 'number' && isFinite(row.c) && row.c !== 0) return row.c;
+          }
+          const last = this.candles[this.candles.length - 1];
+          return last && last.c ? last.c : 1;
+        }
+
+        /** 价格轴 / 价签上的读数：百分比坐标下写成百分比，其余照旧写价格。 */
+        priceLabel(value) {
+          if (this.priceScale !== 'percent') return TerminalPage.price(value);
+          return TerminalPage.pctLabel(value / this.percentBase() - 1);
         }
 
         /** 成交量轴的上下界：贴住数据 + 4% 余量（不用 nice，避免上界被抬高一截）。 */
@@ -783,13 +905,49 @@
               max: this.volumeAxisMax,
               formatter: (value) => ICETradingChart.formatVolume(Number(value)),
             },
-            series: volumeSeries ? [volumeSeries] : [],
+            series: volumeSeries ? [volumeSeries].concat(this.volumeMa ? this.volumeMaSeries : []) : [],
           };
+        }
+
+        /**
+         * 量图上的均量线（MA5 / MA10）。
+         *
+         * 数据跟量柱同一批 x；**首尾读不出量的点会被 `seriesData()` 裁掉** —— 折线系列会把
+         * null 点当 0 画出一条假竖线（上游行为，AGENTS 里记着），所以尾部那串未来空位必须裁。
+         */
+        get volumeMaSeries() {
+          const { from, to } = this.renderSlice();
+          const rows = this.poolSlice(from, to);
+          const source = { ...this.candleSeries, data: rows };
+          const values = rows.map((row) => (typeof row.v === 'number' && isFinite(row.v) ? row.v : null));
+          const line = (id, label, period, color) => {
+            const out = [];
+            const window = [];
+            for (const value of values) {
+              if (value === null) {
+                window.length = 0;
+                out.push(null);
+                continue;
+              }
+              window.push(value);
+              if (window.length > period) window.shift();
+              out.push(window.length === period ? window.reduce((sum, item) => sum + item, 0) / period : null);
+            }
+            return {
+              id,
+              type: 'line',
+              name: label,
+              lineWidth: 1.1,
+              color,
+              data: ICETradingChart.seriesData(source, out),
+            };
+          };
+          return [line('v__ma5', 'MA5', 5, '#f5a524'), line('v__ma10', 'MA10', 10, '#3b82f6')];
         }
 
         get indicatorPaneOption() {
           if (this.paneKind === 'rsi') {
-            const built = ICETradingChart.createRsiPaneOption(this.indicatorSource, { period: 14 });
+            const built = ICETradingChart.createRsiPaneOption(this.indicatorSource, { period: this.rsiPeriod });
             return {
               legend: { show: false },
               animation: { enabled: false },
@@ -805,11 +963,12 @@
             };
           }
           const built = ICETradingChart.createMacdPaneOption(this.indicatorSource, {
+            ...this.macdParams,
             upColor: this.upColor,
             downColor: this.downColor,
           });
           // 量程按**可见窗口**算，副图才贴数据
-          const range = ICETradingChart.macdRange({ ...this.candleSeries, data: this.visibleCandles() }, {});
+          const range = ICETradingChart.macdRange({ ...this.candleSeries, data: this.visibleCandles() }, this.macdParams);
           return {
             legend: { show: false },
             animation: { enabled: false },
@@ -1230,6 +1389,7 @@
             '<span class="kv" data-k="chg">-</span>' +
             '<span class="kv" data-k="time">-</span>' +
             '</div>' +
+            '<div class="session-layer"></div>' +
             '<div class="pane-title" data-pane="volume"></div>' +
             '<div class="pane-title" data-pane="indicator"></div>' +
             '<div class="watermark">SYN/USDT</div>' +
@@ -1251,6 +1411,7 @@
             volumeTitle: layer.querySelector('.pane-title[data-pane="volume"]'),
             indicatorTitle: layer.querySelector('.pane-title[data-pane="indicator"]'),
             watermark: layer.querySelector('.watermark'),
+            sessionLayer: layer.querySelector('.session-layer'),
             hline: layer.querySelector('.hline'),
             vline: layer.querySelector('.vline'),
             lastline: layer.querySelector('.lastline'),
@@ -1259,6 +1420,7 @@
             xtag: layer.querySelector('.tag.time'),
           };
           this.syncChromeBox();
+          this.syncDrawBar();
         }
 
         /**
@@ -1351,15 +1513,30 @@
             const key = event.target.getAttribute && event.target.getAttribute('data-interval');
             if (key) this.setIntervalKey(key);
           });
-          for (const name of ['intervals', 'indicators', 'drawings', 'display']) {
-            document.getElementById(`panel-${name}`).addEventListener('click', (event) => {
+          for (const name of ['intervals', 'type', 'indicators', 'drawings', 'display']) {
+            const panel = document.getElementById(`panel-${name}`);
+            panel.addEventListener('click', (event) => {
               event.stopPropagation();
               this.onPanelClick(name, event);
             });
+            // 参数输入：回车 / 失焦生效（用 change 而不是 input —— 每敲一个字符就重建图表太浪费）
+            panel.addEventListener('change', (event) => this.onPanelInput(event));
           }
+          document.getElementById('draw-bar').addEventListener('click', (event) => this.onDrawBarClick(event));
+          document.getElementById('ctx-menu').addEventListener('click', (event) => {
+            const node = event.target.closest ? event.target.closest('[data-scale]') : null;
+            if (node) this.applyPriceScale(node.getAttribute('data-scale'));
+          });
           document.addEventListener('click', () => this.closeMenus());
           document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape') this.closeMenus();
+            if (event.key !== 'Escape') return;
+            this.closeMenus();
+            // Esc 也退出画线模式（主流看盘软件里 Esc 就是「取消当前绘制」）
+            if (this.drawing && this.drawing.mode()) {
+              this.drawing.setMode(null);
+              this.renderDrawingPanel();
+              this.setHint('已退出画线模式');
+            }
           });
           this.loadPrefs();
           this.renderToolbar();
@@ -1373,13 +1550,14 @@
         }
 
         closeMenus() {
+          this.closeContextMenu();
           if (!this.openMenu) return;
           this.openMenu = null;
           for (const menu of document.querySelectorAll('.tb-menu')) menu.classList.remove('open');
         }
 
         onPanelClick(name, event) {
-          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-custom]') : null;
+          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-type],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-custom]') : null;
           if (!target) return;
           const read = (key) => target.getAttribute(key);
           const star = read('data-star');
@@ -1394,6 +1572,16 @@
 
           const interval = read('data-interval');
           if (interval) return this.setIntervalKey(interval);
+
+          const chartType = read('data-type');
+          if (chartType) {
+            this.chartType = chartType;
+            this.renderTypePanel();
+            this.closeMenus();
+            // 换渲染类型要把整张图重建一次（系列类型变了），但 x 窗口 / 走位都保留
+            this.invalidate();
+            return this.setHint(`图表类型：${this.chartTypeLabel()}`);
+          }
 
           const ind = read('data-ind');
           if (ind) {
@@ -1441,10 +1629,24 @@
             return undefined;
           }
           const display = read('data-display');
-          if (display === 'hollow') {
-            this.hollow = !this.hollow;
+          if (display === 'magnet') {
+            this.magnet = !this.magnet;
             this.renderDisplayPanel();
-            this.invalidate();
+            this.chromeSig = '';
+            this.paintAll();
+            this.syncChrome(true);
+            return undefined;
+          }
+          if (display === 'volumeMa') {
+            this.volumeMa = !this.volumeMa;
+            this.renderDisplayPanel();
+            return this.invalidate();
+          }
+          if (display === 'sessionLines') {
+            this.sessionLines = !this.sessionLines;
+            this.renderDisplayPanel();
+            this.syncSessionLines(true);
+            return undefined;
           }
           return undefined;
         }
@@ -1496,10 +1698,30 @@
         renderToolbar() {
           this.renderIntervalBar();
           this.renderIntervalPanel();
+          this.renderTypePanel();
           this.renderIndicatorPanel();
           this.renderDrawingPanel();
           this.renderDisplayPanel();
           this.syncToolbarState();
+        }
+
+        /** 图表类型（蜡烛 / 空心蜡烛 / 折线 / 面积）。 */
+        renderTypePanel() {
+          this.syncToolbarState();
+          const types = [
+            ['candle', '蜡烛'],
+            ['hollow', '空心蜡烛'],
+            ['line', '折线'],
+            ['area', '面积'],
+          ];
+          document.getElementById('panel-type').innerHTML =
+            '<div class="tb-title">图表类型</div>' +
+            types
+              .map(
+                ([id, label]) =>
+                  `<div class="tb-item ${this.chartType === id ? 'active' : ''}" data-type="${id}"><span class="tb-mark">${this.chartType === id ? '●' : ''}</span>${label}</div>`
+              )
+              .join('');
         }
 
         /**
@@ -1514,9 +1736,10 @@
           if (label) label.textContent = this.intervalKey;
           const drawings = this.drawing ? this.drawing.dump() : [];
           const states = {
+            type: this.chartType !== 'candle',
             indicators: !!(this.indicators.ma || this.indicators.ema || this.indicators.boll),
             drawings: !!((this.drawing && this.drawing.mode()) || drawings.length),
-            display: this.scheme !== 'redUp' || !!this.hollow,
+            display: this.scheme !== 'redUp' || this.magnet || !this.volumeMa || !this.sessionLines,
           };
           for (const menu of document.querySelectorAll('.tb-menu')) {
             const name = menu.getAttribute('data-menu');
@@ -1577,18 +1800,33 @@
             `<div class="tb-item ${checked ? 'active' : ''}" data-ind="${id}"><span class="tb-mark">${checked ? '✓' : ''}</span>${label}</div>`;
           const pane = (id, label, checked) =>
             `<div class="tb-item ${checked ? 'active' : ''}" data-pane="${id}"><span class="tb-mark">${checked ? '●' : ''}</span>${label}</div>`;
+          const param = (key, value, label) =>
+            `<label class="tb-param">${label}<input type="number" min="2" max="200" step="1" data-param="${key}" value="${value}" /></label>`;
+          const macd = this.macdParams;
           document.getElementById('panel-indicators').innerHTML =
             '<div class="tb-title">主图叠加</div>' +
-            row('ma', '均线 MA(7,25)', this.indicators.ma) +
-            row('ema', '均线 EMA(12,26)', this.indicators.ema) +
-            row('boll', '布林带 BOLL(20,2)', this.indicators.boll) +
+            row('ma', `均线 MA(${this.maPeriods.join(',')})`, this.indicators.ma) +
+            row('ema', `均线 EMA(${this.emaPeriods.join(',')})`, this.indicators.ema) +
+            row('boll', `布林带 BOLL(${this.bollPeriod},2)`, this.indicators.boll) +
             '<div class="tb-title">副图</div>' +
-            pane('macd', 'MACD(12,26,9)', this.paneKind === 'macd') +
-            pane('rsi', 'RSI(14)', this.paneKind === 'rsi');
+            pane('macd', `MACD(${macd.fast},${macd.slow},${macd.signal})`, this.paneKind === 'macd') +
+            pane('rsi', `RSI(${this.rsiPeriod})`, this.paneKind === 'rsi') +
+            '<div class="tb-title">参数（回车或失焦生效）</div>' +
+            (this.paneKind === 'rsi'
+              ? param('rsi', this.rsiPeriod, 'RSI')
+              : param('macdFast', macd.fast, '快') +
+                param('macdSlow', macd.slow, '慢') +
+                param('macdSignal', macd.signal, '信号')) +
+            param('maFast', this.maPeriods[0], 'MA1') +
+            param('maSlow', this.maPeriods[1], 'MA2') +
+            param('emaFast', this.emaPeriods[0], 'EMA1') +
+            param('emaSlow', this.emaPeriods[1], 'EMA2') +
+            param('boll', this.bollPeriod, 'BOLL');
         }
 
         renderDrawingPanel() {
           this.syncToolbarState();
+          this.syncDrawBar();
           const mode = this.drawing ? this.drawing.mode() : null;
           const tool = (id, label) =>
             `<div class="tb-item ${mode === id ? 'active' : ''}" data-tool="${id}"><span class="tb-mark">${mode === id ? '✓' : ''}</span>${label}</div>`;
@@ -1607,12 +1845,18 @@
           this.syncToolbarState();
           const scheme = (id, label) =>
             `<div class="tb-item ${this.scheme === id ? 'active' : ''}" data-scheme="${id}"><span class="tb-mark">${this.scheme === id ? '●' : ''}</span>${label}</div>`;
+          const toggle = (id, label, on) =>
+            `<div class="tb-item ${on ? 'active' : ''}" data-display="${id}"><span class="tb-mark">${on ? '✓' : ''}</span>${label}</div>`;
           document.getElementById('panel-display').innerHTML =
             '<div class="tb-title">涨跌配色</div>' +
             scheme('redUp', '红涨绿跌') +
             scheme('greenUp', '绿涨红跌') +
-            '<div class="tb-title">蜡烛</div>' +
-            `<div class="tb-item ${this.hollow ? 'active' : ''}" data-display="hollow"><span class="tb-mark">${this.hollow ? '✓' : ''}</span>阳线空心</div>`;
+            '<div class="tb-title">十字光标</div>' +
+            toggle('magnet', '磁吸最近的开高低收', this.magnet) +
+            '<div class="tb-title">成交量</div>' +
+            toggle('volumeMa', '均量线 MA5 / MA10', this.volumeMa) +
+            '<div class="tb-title">时间轴</div>' +
+            toggle('sessionLines', '会话分隔线（跨天）', this.sessionLines);
         }
 
         /** 收藏的周期与自定义周期存本地，刷新后还在。 */
@@ -1789,6 +2033,7 @@
           host.addEventListener('dblclick', (event) => this.onAxisDblclick(event));
           // 标尺上的滚轮必须 preventDefault（否则整页跟着滚），所以这里不能是 passive
           host.addEventListener('wheel', (event) => this.onAxisWheel(event), { passive: false });
+          host.addEventListener('contextmenu', (event) => this.onAxisContextMenu(event));
           host.addEventListener('pointerdown', (event) => this.onAxisDragStart(event, host));
           host.addEventListener('pointermove', (event) => this.onAxisDragMove(event));
           host.addEventListener('pointerup', () => this.onAxisDragEnd());
@@ -2045,6 +2290,190 @@
           return best ? { pane: best.pane, x, y: best.y } : null;
         }
 
+        chartTypeLabel() {
+          return { candle: '蜡烛', hollow: '空心蜡烛', line: '折线', area: '面积' }[this.chartType] || this.chartType;
+        }
+
+        /** 指标参数输入（回车 / 失焦生效）：改完重建图表 + 刷新图例。 */
+        onPanelInput(event) {
+          const input = event.target;
+          const key = input && input.getAttribute ? input.getAttribute('data-param') : null;
+          if (!key) return;
+          const value = Number(input.value);
+          if (!isFinite(value)) return;
+          const period = Math.max(2, Math.min(200, Math.round(value)));
+          input.value = String(period);
+          if (key === 'macdFast') this.macdParams = { ...this.macdParams, fast: period };
+          else if (key === 'macdSlow') this.macdParams = { ...this.macdParams, slow: period };
+          else if (key === 'macdSignal') this.macdParams = { ...this.macdParams, signal: period };
+          else if (key === 'rsi') this.rsiPeriod = period;
+          else if (key === 'maFast') this.maPeriods = [period, this.maPeriods[1]];
+          else if (key === 'maSlow') this.maPeriods = [this.maPeriods[0], period];
+          else if (key === 'emaFast') this.emaPeriods = [period, this.emaPeriods[1]];
+          else if (key === 'emaSlow') this.emaPeriods = [this.emaPeriods[0], period];
+          else if (key === 'boll') this.bollPeriod = period;
+          if (this.macdParams.slow <= this.macdParams.fast) {
+            this.macdParams = { ...this.macdParams, slow: this.macdParams.fast + 1 };
+          }
+          this.paneKey = '';
+          this.readoutSig = '';
+          this.renderIndicatorPanel();
+          this.invalidate();
+        }
+
+        /**
+         * 价格轴右键菜单（主流看盘软件在右轴上的那一份）：自动量程 / 线性 / 对数 / 百分比。
+         *
+         * 只在**右侧数值标尺**上响应；绘图区里的右键留给浏览器（我们没有「图表右键」那一套）。
+         */
+        onAxisContextMenu(event) {
+          if (this.drawing && this.drawing.mode()) return;
+          const hit = this.valueAxisAt(event.clientX, event.clientY);
+          if (!hit) return;
+          event.preventDefault();
+          const menu = document.getElementById('ctx-menu');
+          const item = (id, label, active) =>
+            `<div class="tb-item ${active ? 'active' : ''}" data-scale="${id}"><span class="tb-mark">${active ? '●' : ''}</span>${label}</div>`;
+          menu.innerHTML =
+            '<div class="tb-title">价格轴</div>' +
+            item('auto', '自动量程', false) +
+            item('linear', '线性坐标', this.priceScale === 'linear') +
+            item('log', '对数坐标', this.priceScale === 'log') +
+            item('percent', '百分比坐标', this.priceScale === 'percent');
+          menu.style.left = `${Math.min(event.clientX, window.innerWidth - 170)}px`;
+          menu.style.top = `${Math.min(event.clientY, window.innerHeight - 150)}px`;
+          menu.classList.add('open');
+        }
+
+        closeContextMenu() {
+          const menu = document.getElementById('ctx-menu');
+          if (menu) menu.classList.remove('open');
+        }
+
+        /** 应用价格轴坐标（auto = 只自适应一次，不改坐标类型）。 */
+        applyPriceScale(mode) {
+          this.closeContextMenu();
+          const chart = this.stack ? this.stack.chartOf('price') : null;
+          if (!chart) return;
+          if (mode === 'auto') {
+            ICETradingChart.resetAutoScale(chart);
+            this.chromeSig = '';
+            this.syncChrome(true);
+            return this.setHint('价格轴已自适应');
+          }
+          this.priceScale = mode;
+          this.invalidate();
+          if (mode === 'percent') return this.setHint(`价格轴：百分比（基准 ${TerminalPage.price(this.percentBase())}）`);
+          this.setHint(mode === 'log' ? '价格轴：对数坐标' : '价格轴：线性坐标');
+        }
+
+        /**
+         * 左侧画线图标条（主流看盘软件把画线工具放在图表左边缘、竖排图标）。
+         *
+         * 结构只建一次不够（选中态要跟着走），但每次只重写这一条 42px 宽的 DOM ——
+         * 比整页重排便宜得多。
+         */
+        syncDrawBar() {
+          const bar = document.getElementById('draw-bar');
+          if (!bar) return;
+          const mode = this.drawing ? this.drawing.mode() : null;
+          const stroke = 'viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"';
+          const tools = [
+            ['trend', '趋势线', `<path d="M3 12.5L13 3.5" /><circle cx="3.4" cy="12.2" r="1.5" /><circle cx="12.6" cy="3.8" r="1.5" />`],
+            ['hline', '水平线', `<path d="M2.6 8h10.8" /><circle cx="8" cy="8" r="1.5" />`],
+            ['vline', '垂直线', `<path d="M8 2.6v10.8" /><circle cx="8" cy="8" r="1.5" />`],
+            ['rect', '区间矩形', `<rect x="3" y="4.4" width="10" height="7.2" rx="1" />`],
+          ];
+          const actions = [
+            ['delete', '删除选中', `<path d="M3.4 5h9.2M6.4 5V3.6h3.2V5M5 5l.7 8.4h4.6L11 5" />`],
+            ['clear', '清空全部', `<path d="M3 11.5h10M5.5 11.5L4.4 4.2l7.2.02-1.1 7.3" />`],
+          ];
+          bar.innerHTML =
+            tools
+              .map(
+                ([id, label, path]) =>
+                  `<button class="draw-tool ${mode === id ? 'on' : ''}" type="button" title="${label}" aria-label="${label}" data-tool="${id}"><svg ${stroke}>${path}</svg></button>`
+              )
+              .join('') +
+            '<span class="spacer"></span>' +
+            actions
+              .map(
+                ([id, label, path]) =>
+                  `<button class="draw-tool" type="button" title="${label}" aria-label="${label}" data-action="${id}"><svg ${stroke}>${path}</svg></button>`
+              )
+              .join('');
+        }
+
+        /** 左侧图标条的点击（选工具 / 删除选中 / 清空）。 */
+        onDrawBarClick(event) {
+          const node = event.target.closest ? event.target.closest('[data-tool],[data-action]') : null;
+          if (!node) return;
+          const tool = node.getAttribute('data-tool');
+          if (tool) {
+            const next = this.drawing.mode() === tool ? null : tool;
+            this.drawing.setMode(next);
+            this.renderDrawingPanel();
+            return this.setHint(next ? '在图上点一下（趋势线 / 区间点两下）' : '已退出画线模式');
+          }
+          const action = node.getAttribute('data-action');
+          if (action === 'clear') {
+            this.drawing.clear();
+            return this.setHint('已清空画线');
+          }
+          const selected = this.drawing.selected();
+          if (!selected) return this.setHint('先点一下某条线选中它');
+          this.drawing.remove(selected.id);
+          this.setHint(`已删除 ${selected.id}`);
+        }
+
+        /**
+         * 会话分隔线：每天第一根上画一条极淡的竖线（主流看盘软件的时间轴分隔）。
+         *
+         * 画在外壳覆盖层里 —— 也就是画在画布**上面**。颜色取到极淡（0.055），
+         * 落在 K 线上几乎看不出来；引擎没有「第二套竖线」的能力，这是当前口径。
+         */
+        syncSessionLines(force) {
+          const layer = this.chrome && this.chrome.sessionLayer;
+          if (!layer) return;
+          const chart = this.stack ? this.stack.chartOf('price') : null;
+          if (!chart || !this.sessionLines) {
+            layer.style.display = 'none';
+            // 关掉时把线**清干净**：留着虽然看不见，但 DOM 里还挂着（用例也会数出旧线）
+            layer.innerHTML = '';
+            this.sessionSig = '';
+            return;
+          }
+          const { from, to } = this.visibleRange();
+          const rows = this.poolSlice(from, to + 1);
+          const keys = [];
+          let day = '';
+          for (const row of rows) {
+            const key = String(row.x);
+            const next = key.slice(0, 8);
+            if (next !== day) {
+              day = next;
+              keys.push(key);
+            }
+          }
+          const signature = keys.join('|');
+          if (!force && signature === this.sessionSig) return;
+          this.sessionSig = signature;
+          const ruler = this.rulerSpan();
+          if (!ruler || !keys.length) {
+            layer.innerHTML = '';
+            layer.style.display = 'none';
+            return;
+          }
+          layer.innerHTML = keys
+            .map((key) => {
+              const x = ICETradingChart.categoryToX(chart, key);
+              if (x === null) return '';
+              return `<i style="left:${this.snapDevice(x)}px;top:${ruler.top}px;height:${ruler.height}px"></i>`;
+            })
+            .join('');
+          layer.style.display = 'block';
+        }
+
         /**
          * 屏幕坐标 → 「是否落在某一格的**右侧数值标尺**上」。
          *
@@ -2114,7 +2543,7 @@
         paneValueLabel(paneId, value) {
           if (paneId === 'volume') return ICETradingChart.formatVolume(value);
           if (paneId !== 'price') return ICETradingChart.formatSigned(TerminalPage.round2(value));
-          return TerminalPage.price(value);
+          return this.priceLabel(value);
         }
 
         setHint(text) {
@@ -2301,7 +2730,10 @@
         renderReadout() {
           const reading = this.readout.read();
           if (!reading || !this.chrome) return;
-          const signature = `${reading.index}:${reading.close}:${reading.volume}:${this.scheme}:${this.intervalKey}:${this.paneKind}`;
+          const signature = [
+            reading.index, reading.close, reading.volume, this.scheme, this.intervalKey, this.paneKind,
+            this.macdParams.fast, this.macdParams.slow, this.macdParams.signal, this.rsiPeriod,
+          ].join(':');
           if (signature === this.readoutSig) return;
           this.readoutSig = signature;
           const color = reading.rising ? this.upColor : this.downColor;
@@ -2347,13 +2779,13 @@
           if (data.kind === 'rsi') {
             const value = at(data.rsi);
             indicator.innerHTML =
-              '<span class="name">RSI</span><span class="arg">14</span>' +
+              `<span class="name">RSI</span><span class="arg">${this.rsiPeriod}</span>` +
               `<span class="val ${typeof value === 'number' && value >= 50 ? 'up' : 'down'}">${value}</span>`;
             return;
           }
           const histogram = data.histogram && data.histogram[reading.index];
           indicator.innerHTML =
-            '<span class="name">MACD</span><span class="arg">12 26 9</span>' +
+            `<span class="name">MACD</span><span class="arg">${this.macdParams.fast} ${this.macdParams.slow} ${this.macdParams.signal}</span>` +
             `<span class="val" style="color:${TerminalPage.DIF_COLOR}">DIF ${at(data.dif)}</span>` +
             `<span class="val" style="color:${TerminalPage.DEA_COLOR}">DEA ${at(data.dea)}</span>` +
             `<span class="val ${histogram !== null && histogram !== undefined && histogram < 0 ? 'down' : 'up'}">MACD ${at(data.histogram)}</span>`;
@@ -2363,6 +2795,8 @@
         syncChrome(force) {
           const priceChart = this.stack ? this.stack.chartOf('price') : null;
           if (!priceChart || !this.chrome) return;
+          // 会话分隔线有自己的签名（视窗一变就重建那几条竖线），放在几何签名早退之前
+          this.syncSessionLines(force);
           const plot = ICETradingChart.plotRect(priceChart);
           if (!plot) return;
           const reading = this.readout.read();
@@ -2404,7 +2838,7 @@
           tag.style.width = `${box.width}px`;
           tag.style.top = `${pinned - 9}px`;
           tag.style.background = color;
-          tag.textContent = TerminalPage.price(last.c);
+          tag.textContent = this.priceLabel(last.c);
         }
 
         /** 把坐标对齐到**设备像素**（1 个 CSS 像素在 dpr=2 上要落到整数设备像素上才不发虚）。 */
@@ -2452,12 +2886,30 @@
             const inPlotY = spot.y >= panePlot.y && spot.y <= panePlot.y + panePlot.height;
             if (local !== null && inPlotX && inPlotY) value = local;
           }
+          // 磁吸：把横线（和它的价签）吸到**这一根**最近的那一个价上（主流看盘软件的「磁吸」）
+          if (value !== null && this.magnet && spot.pane === 'price') {
+            const reading = this.readout.read();
+            if (reading) {
+              let best = null;
+              let bestDistance = Infinity;
+              for (const price of [reading.open, reading.high, reading.low, reading.close]) {
+                const distance = Math.abs(price - value);
+                if (distance < bestDistance) {
+                  bestDistance = distance;
+                  best = price;
+                }
+              }
+              if (best !== null) value = best;
+            }
+          }
           const showH = value !== null;
           this.chrome.hline.style.display = showH ? 'block' : 'none';
           this.chrome.ptag.style.display = showH ? 'block' : 'none';
           let pointerTop = null;
           if (showH) {
-            pointerTop = geom.top + spot.y;
+            // 磁吸时横线画在**吸附到的那个价**上，而不是指针的 y 上
+            const snapped = this.magnet && spot.pane === 'price' ? ICETradingChart.priceToY(paneChart, value, 0) : null;
+            pointerTop = geom.top + (snapped === null ? spot.y : snapped);
             const box = this.tagBox(panePlot);
             this.chrome.hline.style.left = `${panePlot.x}px`;
             this.chrome.hline.style.width = `${panePlot.width}px`;

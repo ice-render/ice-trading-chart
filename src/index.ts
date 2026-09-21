@@ -78,6 +78,7 @@ export type { OhlcReading, OhlcReadout, OhlcReadoutOptions } from './readout';
 export type { ResolvedCandleStyle } from './series/CandlestickSeries';
 export type {
   CandleDatum,
+  CandleRenderType,
   CandleFieldOptions,
   CandleStyle,
   Ohlc,
