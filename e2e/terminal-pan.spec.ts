@@ -129,22 +129,65 @@ async function dragVertical(page: Page, id: string, pixels: number) {
   await page.waitForTimeout(300);
 }
 
-/** 在某一格**右侧数值标尺**上双击（标尺 = 绘图区右缘到画布右缘之间那一条）。 */
-async function dblclickRuler(page: Page, id: string) {
+/** 某一格**右侧数值标尺**的中点（标尺 = 绘图区右缘到画布右缘之间那一条）。 */
+async function rulerPoint(page: Page, id: string) {
   const geo = await paneGeometry(page, id);
-  await page.mouse.dblclick(
-    Math.round(geo.left + geo.plot.x + geo.plot.width + 12),
-    Math.round(geo.top + geo.plot.y + geo.plot.height / 2)
-  );
+  return {
+    x: Math.round(geo.left + geo.plot.x + geo.plot.width + 12),
+    y: Math.round(geo.top + geo.plot.y + geo.plot.height / 2),
+  };
+}
+
+/** 在某一格**右侧数值标尺**上双击。 */
+async function dblclickRuler(page: Page, id: string) {
+  const at = await rulerPoint(page, id);
+  await page.mouse.dblclick(at.x, at.y);
   await page.waitForTimeout(300);
 }
 
 /** 在某一格**右侧数值标尺**上滚一格（`delta < 0` = 放大）。 */
 async function wheelRuler(page: Page, id: string, delta: number) {
-  const geo = await paneGeometry(page, id);
-  await page.mouse.move(Math.round(geo.left + geo.plot.x + geo.plot.width + 12), Math.round(geo.top + geo.plot.y + geo.plot.height / 2));
+  const at = await rulerPoint(page, id);
+  await page.mouse.move(at.x, at.y);
   await page.mouse.wheel(0, delta);
   await page.waitForTimeout(200);
+}
+
+/**
+ * 在某一格右侧标尺上按住往上拖 `pixels`（正数 = 往上 = 放大数值轴）。
+ *
+ * 分成「按下 / 分段移动 / 松手」三步暴露出来，是为了让用例能在拖动**中途**取状态，
+ * 也能把指针拖回出发点再松手。
+ */
+async function dragRulerUp(page: Page, id: string, pixels: number, steps = 16) {
+  const at = await rulerPoint(page, id);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  for (let i = 1; i <= steps; i++) {
+    await page.mouse.move(at.x, at.y - (pixels * i) / steps, { steps: 1 });
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+}
+
+/** 数值轴的刻度：步长（最小相邻差）、标签、以及三块 pane 的绘图区是否等宽对齐。 */
+async function tickState(page: Page) {
+  return page.evaluate(() => {
+    const pg = (window as any).__page;
+    const chart = pg.stack.chartOf('price');
+    const layout = chart.layout.yAxisLayout;
+    const ticks = (layout.ticks || []).map(Number);
+    let step = Infinity;
+    for (let i = 1; i < ticks.length; i++) {
+      const d = Math.abs(ticks[i] - ticks[i - 1]);
+      if (d > 0 && d < step) step = d;
+    }
+    const plots = ['price', 'volume', 'indicator'].map((id) => pg.stack.chartOf(id).layout.plot);
+    const aligned = plots.every(
+      (plot) => Math.abs(plot.x - plots[0].x) < 0.01 && Math.abs(plot.width - plots[0].width) < 0.01
+    );
+    return { step: isFinite(step) ? step : 0, labels: layout.labels || [], aligned };
+  });
 }
 
 /** 最下面那条**时间轴**上的一点（绘图区下缘往下的标签带里）。 */
@@ -445,6 +488,64 @@ test.describe('K 线终端示例页', () => {
       await page.evaluate(() => document.getElementById('s-hint')!.textContent),
       '给出了手势反馈'
     ).toContain('时间轴');
+  });
+
+  test('标尺上按住上下拖：数值轴跟着缩放（向上拖 = 放大），x 窗口不动', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    const beforeX = await axisDomain(page, 'price', 'x');
+    const beforeY = (await axisDomain(page, 'price', 'y')).map(Number);
+    const span0 = beforeY[1] - beforeY[0];
+    const cursor = () => page.evaluate(() => document.getElementById('panes')!.style.cursor);
+    const at = await rulerPoint(page, 'price');
+
+    // 光标：标尺上悬停就是「上下箭头」（那里按下是拖拽缩放，不是平移小手）
+    await page.mouse.move(at.x, at.y);
+    await page.waitForTimeout(120);
+    expect(await cursor(), '悬停标尺要给 ns-resize').toBe('ns-resize');
+
+    // 按住往上拖 80px = 放大；拖动中途指针离开标尺也不许丢
+    await page.mouse.down();
+    for (let i = 1; i <= 16; i++) {
+      await page.mouse.move(at.x - (i > 8 ? 30 : 0), at.y - (80 * i) / 16, { steps: 1 });
+    }
+    const dragged = (await axisDomain(page, 'price', 'y')).map(Number);
+    expect(dragged[1] - dragged[0], '向上拖要把数值轴放大').toBeLessThan(span0);
+    expect(await cursor(), '拖动中保持 ns-resize').toBe('ns-resize');
+    expect(await axisDomain(page, 'price', 'x'), '标尺拖拽不该动时间窗口').toEqual(beforeX);
+
+    // 指针拖回出发点再松手 = 窗口原样（快照口径，不累积误差）
+    await page.mouse.move(at.x, at.y, { steps: 10 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    expect(await axisDomain(page, 'price', 'y'), '拖回去就该还回来').toEqual(beforeY);
+    expect(await cursor(), '松手后回到 ns-resize（指针还在标尺上）').toBe('ns-resize');
+
+    // 绘图区里的指针仍然是「按下去才变手」的老规矩
+    const center = await paneCenter(page);
+    await page.mouse.move(center.x, center.y);
+    await page.waitForTimeout(120);
+    expect(await cursor(), '绘图区悬停不给 ns-resize').toBe('');
+  });
+
+  test('标尺拖到很细：刻度跟着变细，三块 pane 的绘图区仍然等宽对齐', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    const before = await tickState(page);
+    expect(before.aligned, '起手三块 pane 就是对齐的').toBe(true);
+    expect(before.step, '起手刻度是粗的').toBeGreaterThan(0);
+
+    await dragRulerUp(page, 'price', 200);
+    const after = await tickState(page);
+    expect(after.step, '缩得越细，刻度步长越小（精度跟着走）').toBeLessThan(before.step);
+    expect(after.labels, '标签真的换了').not.toEqual(before.labels);
+    expect(after.aligned, '标签变长也没把三块图的绘图区挤歪').toBe(true);
+
+    // 双击标尺回到自适应，刻度也跟着回到粗的那一档
+    await dblclickRuler(page, 'price');
+    const home = await tickState(page);
+    expect(home.step).toBeCloseTo(before.step, 6);
+    expect(home.aligned).toBe(true);
   });
 
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {

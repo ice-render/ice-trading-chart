@@ -15,8 +15,8 @@
 export { createTradingChart, toTradingOption } from './chart';
 export type { TradingChartExtras } from './chart';
 export { computePriceRange, DEFAULT_PRICE_PADDING } from './axisRange';
-export { resetAutoScale, zoomValueAxis } from './axisView';
-export type { ValueZoomOptions } from './axisView';
+export { applyValueAxisScale, beginValueAxisScale, resetAutoScale, zoomValueAxis } from './axisView';
+export type { ValueAxisScale, ValueZoomOptions } from './axisView';
 export {
   bollinger,
   closeSeries,

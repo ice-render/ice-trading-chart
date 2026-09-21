@@ -228,7 +228,7 @@
           <span>下一根 <b id="s-next">-</b></span>
           <span>已推送 <b id="s-pushed">0</b></span>
           <span>fps <b id="s-fps">0</b></span>
-          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走 · 标尺：滚轮缩放、双击自适应 · 时间轴双击回到最新</span>
+          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走 · 标尺：上下拖 / 滚轮缩放、双击自适应 · 时间轴双击回到最新</span>
         </div>
       </div>
 
@@ -485,6 +485,13 @@
         pointer = null;
         /** 是否按住主键（只用来驱动光标，见 bindPanCursor / syncCursor）。 */
         pressed = false;
+        /**
+         * 指针是不是停在**右侧数值标尺**上（同样是驱动光标：标尺上是 `ns-resize`）。
+         * 标尺上的按下归「拖拽缩放」，不给平移小手，见 bindPanCursor。
+         */
+        axisHover = false;
+        /** 进行中的「标尺拖拽缩放」：`{ pane, scale }`（`scale` 是按下那一刻的快照）。 */
+        axisDrag = null;
         /** 最近一次写下去的光标值（避免每次 pointermove 都写 style）。 */
         cursor = '';
         /** 平移 / 缩放的量程重算（rAF 节流句柄）。 */
@@ -1505,11 +1512,13 @@
           const host = document.getElementById('panes');
           host.addEventListener('pointermove', (event) => {
             this.pointer = this.pointerAt(event.clientX, event.clientY);
+            this.axisHover = this.overAxis(event.clientX, event.clientY);
             this.syncCursor();
             this.syncChrome();
           });
           host.addEventListener('pointerleave', () => {
             this.pointer = null;
+            this.axisHover = false;
             this.syncCursor();
             this.syncChrome();
           });
@@ -1522,7 +1531,8 @@
          * 引擎完全不碰 cursor，这块归页面。两个细节：
          * - **按下就变**，不等移动。引擎的 `updateDrag` 有 3px 死区（小于 3px 不算拖动），
          *   光标跟它对齐的话，用户按住拖了 1~2px 时看着毫无反馈；用户要的也是「按下就变手」。
-         * - 画线工具武装时这一片归画线层（它的 SVG 会把 `pointer-events` 打开并给
+         * - **标尺上不给小手**：那一条是「拖拽缩放数值轴」，光标是 `ns-resize`
+        * - 画线工具武装时这一片归画线层（它的 SVG 会把 `pointer-events` 打开并给
          *   `crosshair`），那不是平移，不参与。
          */
         bindPanCursor() {
@@ -1535,6 +1545,7 @@
           host.addEventListener('pointerdown', (event) => {
             if (event.button !== 0) return;
             if (this.drawing && this.drawing.mode()) return;
+            if (this.valueAxisAt(event.clientX, event.clientY)) return;
             this.pressed = true;
             this.syncCursor();
           });
@@ -1550,6 +1561,7 @@
          * | --- | --- | --- |
          * | 右侧数值标尺上**双击** | 该 pane 的数值轴自适应 | `pan.axes: 'xy'` 让纵向拖动成为「手动量程」，拖过头之后唯一的出口是「重置」，而那个会连数据一起重采样 |
          * | 右侧数值标尺上**滚轮** | 缩放该 pane 的数值轴（指针为锚点） | 滚轮在绘图区里是**时间轴**缩放，数值轴的缩放要有自己的落点，主流看盘软件就是在标尺上滚 |
+         * | 右侧数值标尺上**按住上下拖** | 缩放该 pane 的数值轴（向上拖 = 放大） | 主流看盘软件的主力手势：滚轮适合微调，拖拽才是「一把拉到位」 |
          * | 底部**时间轴**上双击 | 重置时间轴：回到默认根数 + 跟盘 | 缩放到一根 K 占半屏之后，要有一步回到默认视野的入口 |
          *
          * 判据都是「落在哪一条带子上」：右侧标尺 = 绘图区右缘 → 画布右缘且纵向在绘图区内；
@@ -1563,6 +1575,57 @@
           host.addEventListener('dblclick', (event) => this.onAxisDblclick(event));
           // 标尺上的滚轮必须 preventDefault（否则整页跟着滚），所以这里不能是 passive
           host.addEventListener('wheel', (event) => this.onAxisWheel(event), { passive: false });
+          host.addEventListener('pointerdown', (event) => this.onAxisDragStart(event, host));
+          host.addEventListener('pointermove', (event) => this.onAxisDragMove(event));
+          host.addEventListener('pointerup', () => this.onAxisDragEnd());
+          host.addEventListener('pointercancel', () => this.onAxisDragEnd());
+        }
+
+        /**
+         * 标尺上按下 = 开始「拖拽缩放」（不是平移）。
+         *
+         * 拖动过程中指针会离开标尺（甚至离开绘图区），所以按下时**抓住指针**：
+         * 后面的 move / up 全都会送到 `#panes` 上，不会因为离开元素而丢事件。
+         */
+        onAxisDragStart(event, host) {
+          if (event.button !== 0) return;
+          if (this.drawing && this.drawing.mode()) return;
+          const hit = this.valueAxisAt(event.clientX, event.clientY);
+          if (!hit) return;
+          const chart = this.stack.chartOf(hit.pane);
+          const scale = chart ? ICETradingChart.beginValueAxisScale(chart, hit.y) : null;
+          if (!scale) return;
+          this.axisDrag = { pane: hit.pane, scale };
+          // 这里**不能** preventDefault：取消 pointerdown 会连带压掉兼容鼠标事件，
+          // 有些浏览器里双击就不成立了（标尺上的双击是「自适应」）。要拦的默认行为
+          // （拖拽选中文字）在 move 那一步拦，见 onAxisDragMove。
+          if (typeof host.setPointerCapture === 'function') {
+            try {
+              host.setPointerCapture(event.pointerId);
+            } catch (error) {
+              // 指针已经不在了（合成事件 / 已经抬起）——不影响后续的 move 处理
+            }
+          }
+          this.syncCursor();
+        }
+
+        /** 标尺拖拽中：把窗口按快照重新算一遍（拖回出发点就回到原样）。 */
+        onAxisDragMove(event) {
+          if (!this.axisDrag) return;
+          // 按住拖动时别让浏览器顺手选中页面上的文字（取消 move 的兼容鼠标事件即可）
+          event.preventDefault();
+          const chart = this.stack.chartOf(this.axisDrag.pane);
+          const local = this.paneLocalY(this.axisDrag.pane, event.clientY);
+          if (!chart || local === null) return;
+          if (!ICETradingChart.applyValueAxisScale(chart, this.axisDrag.scale, local)) return;
+          this.chromeSig = '';
+          this.syncChrome(true);
+        }
+
+        onAxisDragEnd() {
+          if (!this.axisDrag) return;
+          this.axisDrag = null;
+          this.syncCursor();
         }
 
         /** 右侧标尺双击 = 数值轴自适应；底部时间轴双击 = 重置时间轴。 */
@@ -1604,10 +1667,13 @@
          * 所以悬停**不给** `grab`，图表上鼠标保持普通箭头；按下主键立刻变手，
          * 松手（哪怕指针已经拖到图外）立刻收回来。
          *
+         * **数值标尺是唯一的例外**：那一条上悬停就给 `ns-resize`（上下箭头），
+         * 因为那里按下就是「上下拖拽缩放」，光标得先说明这件事 —— 这也是主流看盘软件的做法。
+         *
          * 屏幕坐标无关：这几件事只发生在**按下 / 抬起**两个瞬间，跟移动了多少像素无关。
          */
         syncCursor() {
-          const next = this.pressed ? 'grabbing' : '';
+          const next = this.axisDrag || this.axisHover ? 'ns-resize' : this.pressed ? 'grabbing' : '';
           if (next === this.cursor) return;
           this.cursor = next;
           document.getElementById('panes').style.cursor = next;
@@ -1784,6 +1850,25 @@
             return x >= plot.x + plot.width ? { pane: id, y: local } : null;
           }
           return null;
+        }
+
+        /** 指针是不是停在某一格的数值标尺上（只给光标用；画线工具武装时不算）。 */
+        overAxis(clientX, clientY) {
+          if (this.drawing && this.drawing.mode()) return false;
+          return !!this.valueAxisAt(clientX, clientY);
+        }
+
+        /**
+         * 屏幕坐标 → 某一格画布内的 y。
+         *
+         * 与 `valueAxisAt` 的区别：**不做越界判断** —— 拖拽缩放时指针会跑出这一格
+         * （甚至跑出整张图），缩放公式要拿到真实的 y（离绘图区下缘多远）才能连续响应。
+         */
+        paneLocalY(paneId, clientY) {
+          const geom = this.paneGeom[paneId];
+          if (!geom) return null;
+          const host = document.getElementById('panes').getBoundingClientRect();
+          return clientY - host.top - this.chromeOrigin.y - geom.top;
         }
 
         /**

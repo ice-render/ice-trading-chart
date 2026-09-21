@@ -271,6 +271,7 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
 
 | 手势 | 作用 | 落地 |
 | --- | --- | --- |
+| 右侧数值标尺**按住上下拖** | 缩放该 pane 的数值轴（向上拖 = 放大） | `beginValueAxisScale(chart, y)` + `applyValueAxisScale(chart, scale, y)` |
 | 右侧数值标尺**双击** | 该 pane 的数值轴自适应（清掉手动 y 窗口） | `resetAutoScale(chart)` |
 | 右侧数值标尺**滚轮** | 缩放该 pane 的数值轴（指针指着的价格不动） | `zoomValueAxis(chart, { factor, anchorY })` |
 | 底部**时间轴双击** | 重置时间轴：默认根数 + 回到最新（跟盘） | 页面直接调 `resumeFollow()` |
@@ -295,6 +296,31 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
 option 里的 `interaction.zoom`，默认 0.05 / 1），**锚点处的价格纹丝不动**；
 夹取与「不许出完整数据域」交给 `setDomain('y', …, 'zoom')` —— 走 `'zoom'` 这个来源才和
 引擎的手势缩放同一条路径（`'api'` 不做这层约束）。滚轮倍率的默认值也和引擎对齐（1.2）。
+
+**拖拽缩放（`beginValueAxisScale` / `applyValueAxisScale`）走的是「快照」口径**，
+和滚轮不是一套，别混：
+
+- 系数 = **「按下点到绘图区下缘的距离」/「当前点到绘图区下缘的距离」**，两边各加
+  `0.2 × 绘图区高度` 做阻尼（指针贴到下缘时距离趋于 0，没有这一项系数会发散），系数下限 0.1；
+  **向上拖 = 放大**。所以同一段拖动距离在不同高度上按下的力度是不一样的 —— 这是有意的。
+- 每一帧都拿**按下那一刻的窗口**重算（`scale.domain`），不在上一帧结果上叠加：
+  拖回出发点就是原样（不累积误差），拖出去再拖回来不会「回不去」。
+- 锚点是**按下那一刻窗口的中心**（缩放前后中线上的价格原地不动）。
+- 指针回到出发点时要**显式还原快照**（`scale.applied`）：只是一次点击（没拖动）时什么都别做，
+  因为 `setDomain(…, 'zoom')` 会把窗口夹回完整数据域，那会让一次点击也跳一下。
+- 按下时 `setPointerCapture`：拖动全程指针会跑出标尺、甚至跑出整张图，
+  不抓指针就会中途丢掉 move 事件。
+- 光标：标尺是**唯一悬停就给非默认光标**的地方（`ns-resize`）；标尺上的按下**不给平移小手**
+  （`bindPanCursor` 里让路），否则「按住想缩放」会先看到一只抓住的手。
+
+**刻度标签的精度是引擎按步长自适应的**（`formatNumberTick(value, tickStep)`：步长 < 1 时
+`digits = ceil(-log10(step))`）。所以「标尺精度跟着缩放走」是免费的 —— 但要留意两点：
+
+- 步长由 `niceStep(窗口跨度, tickCount)` 决定，**价格量级大的品种缩到底也可能一直是整数**
+  （42000 附近的最小窗口约 40，步长 10）；小价格的品种才看得到小数位。
+- 标签一长就可能**顶破 `axisLabelChars` 的补位预算**，那三块 pane 的右轴预留宽度就不同了、
+  绘图区当场错位（AGENTS 上面那条「字号预算要够长」）。示例页的 e2e
+  「标尺拖到很细：刻度跟着变细，三块 pane 的绘图区仍然等宽对齐」就是守这条。
 
 **数值轴一动，外壳就要跟着重画**（`syncChrome(true)`）。两条容易被新手势带出来的毛病，
 都在 `paintLastPrice` / `paintPointer` 里兜住了：
@@ -467,6 +493,11 @@ dpr = 1 时看着正好，dpr = 3 时只剩 1/3 个 CSS 像素 —— 细得像�
 - **示例页的行为要有 e2e 兜底**（`e2e/terminal-pan.spec.ts`）：平移 / 未来空位 / 光标这些
   住在 HTML 里的逻辑，jest 照不到。判据一律量**行为**而不是量实现：光标值、视窗两端 key、
   三块 pane 是否同窗、绘图区里「系列颜色」的像素数（空白区必须是 0）。
+- ⚠️ 仓库里的 playwright 只跑 chromium，但**用户的主力浏览器是 Firefox**
+  （手势、光标、指针捕获这些最吃浏览器差异）。动手改鼠标手势时建议再跑一遍 Firefox：
+  `npx playwright install firefox` 之后用一份临时 config（`projects: [{ name:'firefox',
+  use:{ browserName:'firefox' } }]`，其余继承 `playwright.config.ts`）跑 `e2e/terminal-pan.spec.ts`，
+  跑完把临时 config 删掉（别把第二个 project 提交进去，发版门禁要快）。
 
 ## 外围组件也归本包
 

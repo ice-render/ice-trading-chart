@@ -1,5 +1,12 @@
 import type { ICEChart } from '@damoqiongqiu/ice-chart';
-import { createTradingChart, resetAutoScale, yToPrice, zoomValueAxis } from '../src/index';
+import {
+  applyValueAxisScale,
+  beginValueAxisScale,
+  createTradingChart,
+  resetAutoScale,
+  yToPrice,
+  zoomValueAxis,
+} from '../src/index';
 import type { TradingChartOption } from '../src/types';
 
 /**
@@ -11,6 +18,8 @@ import type { TradingChartOption } from '../src/types';
  * 3. 清掉之后 y 轴真的回到「自动」—— 换一条 option 时量程跟着走。这条是**关键**：
  *    如果实现只是把 y 窗口「写成当前自动值」，量程依旧被视图状态钉住，这条就会挂。
  * 4. 缩放：窗口变窄 / 变宽、锚点处的价格纹丝不动、上下限跟着 `interaction.zoom` 走。
+ * 5. 拖拽：向上拖 = 放大、向下拖 = 缩小、拖回出发点 = 窗口原样（不累积误差）；
+ *    以及「标尺精度跟着窗口走」——窗口一细，刻度标签自动多带小数位。
  */
 
 function option(range: { min: number; max: number }): TradingChartOption {
@@ -144,5 +153,79 @@ describe('数值轴的视图控制（标尺双击自适应 / 标尺滚轮缩放�
     expect(c.getDomain('y')).not.toEqual(auto);
     expect(resetAutoScale(c)).toBe(true);
     expect(c.getDomain('y')).toEqual(auto);
+  });
+
+  it('拖拽语义：向上拖 = 放大、向下拖 = 缩小，窗口中心不动', async () => {
+    const c = await mount(option({ min: 90, max: 135 }));
+    const before = c.getDomain('y').map(Number);
+    const span0 = before[1] - before[0];
+    const center0 = (before[0] + before[1]) / 2;
+    const plot = c.layout.plot;
+    const startY = plot.y + plot.height / 2;
+    const scale = beginValueAxisScale(c, startY);
+    expect(scale).not.toBeNull();
+
+    // 向上拖（y 变小）= 放大
+    expect(applyValueAxisScale(c, scale!, startY - 60)).toBe(true);
+    const inSpan = Number(c.getDomain('y')[1]) - Number(c.getDomain('y')[0]);
+    expect(inSpan).toBeLessThan(span0);
+    expect((Number(c.getDomain('y')[0]) + Number(c.getDomain('y')[1])) / 2).toBeCloseTo(center0, 6);
+
+    // 向下拖（y 变大）= 缩小（从放大态往回走，最宽只到完整数据域）
+    expect(applyValueAxisScale(c, scale!, startY + 60)).toBe(true);
+    const outSpan = Number(c.getDomain('y')[1]) - Number(c.getDomain('y')[0]);
+    expect(outSpan).toBeGreaterThan(inSpan);
+    expect(outSpan).toBeLessThanOrEqual(span0);
+
+    // 拖回出发点 = 原样（快照口径，不累积误差）
+    expect(applyValueAxisScale(c, scale!, startY)).toBe(true);
+    expect(c.getDomain('y')).toEqual(before);
+  });
+
+  it('拖拽语义：上下限用 `interaction.zoom` 的 minSpan / maxSpan', async () => {
+    const c = await mount(option({ min: 90, max: 135 }));
+    const full = c.fullDomain('y').map(Number);
+    const plot = c.layout.plot;
+    const startY = plot.y + plot.height / 2;
+    const scale = beginValueAxisScale(c, startY)!;
+    // 拖到最上面（系数 0.1 下限）也不许比 minSpan 更窄
+    for (let i = 0; i < 5; i++) applyValueAxisScale(c, scale, plot.y - 400);
+    const y = c.getDomain('y').map(Number);
+    expect(y[1] - y[0]).toBeGreaterThanOrEqual((full[1] - full[0]) * 0.05 - 1e-9);
+    // 拖到最下面也不许比完整数据域更宽
+    for (let i = 0; i < 5; i++) applyValueAxisScale(c, scale, plot.y + plot.height + 400);
+    const wide = c.getDomain('y').map(Number);
+    expect(wide[1] - wide[0]).toBeLessThanOrEqual(full[1] - full[0] + 1e-9);
+  });
+
+  it('标尺精度跟着窗口走：窗口一细，刻度标签就多带小数位', async () => {
+    // 小价格品种（1~2 一档），才够看到「步长掉到 1 以下」这一步
+    const small: TradingChartOption = {
+      legend: { show: false },
+      animation: { enabled: false },
+      xAxis: { type: 'category' },
+      yAxis: { position: 'right', min: 1, max: 2 },
+      series: [
+        {
+          id: 'k',
+          type: 'candlestick',
+          data: [
+            { x: 'D1', o: 1.2, c: 1.4, l: 1.1, h: 1.5 },
+            { x: 'D2', o: 1.4, c: 1.3, l: 1.25, h: 1.45 },
+            { x: 'D3', o: 1.3, c: 1.7, l: 1.28, h: 1.75 },
+            { x: 'D4', o: 1.7, c: 1.6, l: 1.55, h: 1.8 },
+          ],
+        },
+      ],
+    };
+    const c = await mount(small);
+    const decimals = (text: string): number => (text.split('.')[1] || '').length;
+    const coarse = c.formatAxisValue('y', 1.55);
+    expect(decimals(coarse)).toBe(1); // 窗口 1 宽 → 步长 0.2
+
+    // 缩到 1/10：步长掉到 0.02，标签自动多给一位小数
+    for (let i = 0; i < 10; i++) zoomValueAxis(c, { factor: 1.26 });
+    const fine = c.formatAxisValue('y', 1.55);
+    expect(decimals(fine)).toBeGreaterThan(decimals(coarse));
   });
 });
