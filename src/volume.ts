@@ -6,7 +6,12 @@ import type { CandleDatum, PriceRange, TradingSeriesOption, VolumeOption } from 
 export const DEFAULT_VOLUME_FIELD = 'v';
 export const DEFAULT_VOLUME_RATIO = 5;
 export const DEFAULT_VOLUME_AXIS = 1;
-export const DEFAULT_VOLUME_BAR_WIDTH = 0.62;
+/**
+ * 成交量柱宽：同样**铺满类目带宽**（= 步距的 80%，留 20% 间隙）。
+ *
+ * 比蜡烛窄会让副图看着比主图稀疏，两者对齐才好读；要更细自己传 `barWidth`。
+ */
+export const DEFAULT_VOLUME_BAR_WIDTH = 1;
 
 function toPositive(value: unknown): number | null {
   if (value === null || value === undefined || value === '') return null;

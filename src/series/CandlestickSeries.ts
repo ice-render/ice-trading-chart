@@ -96,10 +96,20 @@ export class CandlestickSeries extends SeriesBase {
     return out;
   }
 
+  /**
+   * 实体宽度。
+   *
+   * `barWidth` ≤ 1 表示**占类目带宽的比例**，**默认 1（铺满带宽）**；> 1 是绝对 CSS 像素。
+   *
+   * 为什么默认铺满带宽：类目轴本身已经用 `paddingInner` 扣掉 20% 的步距当间隙，
+   * 带宽 = 0.8 × 步距。实体再乘一个 0.66 的话，实体只占步距的 53% —— **一半都是缝**，
+   * 看着很稀疏。主流终端库的口径是「实体占步距的 82%~86%（间隙 14%~20%）」
+   * （`optimalCandlestickWidth`：`spacing × coeff`，coeff 从小间距的 ~0.86 渐近到 0.8），
+   * 所以铺满带宽（间隙 20%）才是同一个量级。
+   */
   private resolveBodyWidth(bandWidth: number): number {
     const raw = Number(this.series.option.barWidth);
-    if (!isFinite(raw) || raw <= 0) return Math.max(2, bandWidth * 0.6);
-    // ≤1 是「占 band 的比例」；>1 是绝对 CSS 像素
+    if (!isFinite(raw) || raw <= 0) return Math.max(2, bandWidth);
     return raw <= 1 ? Math.max(2, bandWidth * raw) : Math.max(2, raw);
   }
 

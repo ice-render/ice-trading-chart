@@ -101,6 +101,11 @@ describe('buildVolumeSeries', () => {
     expect(data[1].value).toBeNull();
   });
 
+  it('默认柱宽铺满类目带宽（对齐蜡烛，副图不会显得更稀疏）', () => {
+    const volume: any = buildVolumeSeries(CANDLES);
+    expect(volume.barWidth).toBe(1);
+  });
+
   it('自定义字段名与柱宽生效', () => {
     const source: TradingSeriesOption = { ...CANDLES, data: [{ x: 'D1', o: 1, c: 2, l: 0, h: 3, 量: 777 }] };
     const volume: any = buildVolumeSeries(source, { field: '量', barWidth: 0.4 });

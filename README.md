@@ -64,6 +64,7 @@ createTradingChart('canvas-id', {
 做法是把成交量放到**第二个 y 轴**、轴域钉成 `[0, ratio × 最大量]` 且 `show:false`：
 `v = 最大量` 正好落在绘图区底部 `1/ratio`，柱子在底部、刻度不占横向空间。
 `ratio` 默认 5（20%），柱子按 `close ≥ open` 逐项上色。
+柱宽默认**铺满类目带宽**（与蜡烛对齐），要更细传 `barWidth`。
 
 > `nice: false` 是必须的：轴域要是走了「取整到好看刻度」，上界会被抬上去，`1/ratio` 的带宽就不准了。
 

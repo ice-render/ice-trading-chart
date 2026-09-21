@@ -253,6 +253,28 @@ describe('成交量副图（引擎集成）', () => {
     expect(slots['k__volume']).toEqual({ index: 0, count: 1 });
   });
 
+  it('默认实体宽铺满类目带宽（只留 paddingInner 那 20% 的间隙）', async () => {
+    const c = await mount(CANDLE_OPTION);
+    const comp: any = c.seriesComponents[0];
+    const scale = c.norm.xAxis.scale!;
+    const body = comp.resolveBodyWidth(scale.bandwidth());
+    // 类目带宽本身已扣掉 20% 的步距当间隙；实体再乘一个小比例就会「一半都是缝」
+    expect(body).toBeCloseTo(scale.bandwidth(), 6);
+    const gapRatio = (scale.step() - body) / scale.step();
+    expect(gapRatio).toBeGreaterThan(0.1);
+    expect(gapRatio).toBeLessThan(0.25);
+  });
+
+  it('barWidth 显式给小比例时按比例收窄', async () => {
+    const c = await mount({
+      ...CANDLE_OPTION,
+      series: [{ ...CANDLE_OPTION.series[0], barWidth: 0.5 }] as never,
+    });
+    const comp: any = c.seriesComponents[0];
+    const scale = c.norm.xAxis.scale!;
+    expect(comp.resolveBodyWidth(scale.bandwidth())).toBeCloseTo(scale.bandwidth() * 0.5, 6);
+  });
+
   it('价格轴的范围不受成交量影响', async () => {
     const c = await mount(WITH_VOLUME);
     expect(c.norm.yAxes[0].domain[0]).toBeLessThanOrEqual(95);

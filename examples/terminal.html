@@ -364,7 +364,7 @@
             type: 'candlestick',
             name: '价格',
             data: this.candles,
-            barWidth: 0.66,
+            // barWidth 不写就是默认（铺满类目带宽，只留 20% 间隙）
             candle: {
               upColor: this.upColor,
               downColor: this.downColor,
@@ -423,7 +423,6 @@
             series: [
               ICETradingChart.buildVolumeSeries(this.candleSeries, {
                 axisIndex: 0,
-                barWidth: 0.56,
                 upColor: this.upColor,
                 downColor: this.downColor,
               }),
