@@ -21,40 +21,32 @@
       }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); color: var(--text); font: 12px/1.5 var(--font); overflow-x: hidden; }
-      .mono { font-family: var(--mono); }
-      .up { color: var(--up); }
-      .down { color: var(--down); }
+      b { font-family: var(--mono); }
 
-      /* 顶部行情条 */
+      /* ---------------- 顶部行情条 ---------------- */
       .topbar {
-        display: flex; align-items: center; gap: 22px; padding: 9px 14px;
+        display: flex; align-items: center; gap: 20px; padding: 8px 14px;
         background: linear-gradient(180deg, #131b26 0%, #0f151e 100%);
         border-bottom: 1px solid var(--line); flex-wrap: wrap;
       }
-      .topbar .symbol { font: 600 15px/1.4 var(--font); }
-      .topbar .symbol small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+      .symbol { font-size: 15px; font-weight: 600; display: flex; align-items: baseline; gap: 6px; }
+      .symbol small { color: var(--muted); font-weight: 400; }
       .stat { display: flex; flex-direction: column; gap: 1px; }
       .stat span { color: var(--muted); font-size: 10px; }
-      .stat b { font: 500 12px/1.4 var(--mono); }
-      .topbar .last { font: 600 20px/1.2 var(--mono); }
-      .topbar .tools { margin-left: auto; display: flex; gap: 8px; }
+      .stat b { font-size: 12px; font-weight: 500; }
+      .stat .last { font-size: 20px; font-weight: 600; }
+      .topbar .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-      /* 三栏 */
-      .terminal {
-        display: grid;
-        grid-template-columns: 232px minmax(0, 1fr) 268px;
-        gap: 1px;
-        background: var(--line);
-      }
+      /* ---------------- 三栏 ---------------- */
+      .terminal { display: grid; grid-template-columns: 228px minmax(0, 1fr) 262px; gap: 1px; background: var(--line); }
       .col { background: var(--panel-2); min-width: 0; }
       .blk { border-bottom: 1px solid var(--line); }
       .blk:last-child { border-bottom: none; }
       .blk > header {
-        display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-        height: 30px; color: var(--dim); font-size: 11px;
-        border-bottom: 1px solid var(--line-soft);
+        display: flex; align-items: center; gap: 8px; padding: 6px 10px; height: 30px;
+        color: var(--dim); font-size: 11px; border-bottom: 1px solid var(--line-soft);
       }
-      .blk > header .right { margin-left: auto; font-family: var(--mono); color: var(--muted); }
+      .blk > header .right { margin-left: auto; color: var(--muted); }
 
       /* 盘口 */
       .book { padding: 4px 0 6px; }
@@ -67,37 +59,37 @@
       .book-row .px, .book-row .sz { position: relative; z-index: 1; }
       .book-row .sz { text-align: right; color: var(--dim); }
       .book-mid {
-        display: flex; align-items: baseline; gap: 8px; padding: 5px 10px;
+        display: flex; align-items: baseline; gap: 8px; padding: 4px 10px;
         border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
         font-family: var(--mono);
       }
       .book-mid b { font-size: 15px; }
       .book-mid span { color: var(--muted); font-size: 10px; }
 
-      /* 下单面板 */
+      /* 下单 */
       form.order { padding: 8px 10px 10px; display: grid; gap: 7px; }
-      .tabs { display: flex; gap: 14px; border-bottom: 1px solid var(--line-soft); padding-bottom: 5px; }
+      .tabs { display: flex; gap: 12px; border-bottom: 1px solid var(--line-soft); padding-bottom: 5px; }
       .tabs button {
-        background: none; border: 0; color: var(--muted); font-size: 12px; cursor: pointer; padding: 2px 0;
-        border-bottom: 2px solid transparent;
+        background: none; border: 0; color: var(--muted); font-size: 12px; cursor: pointer;
+        padding: 2px 0; border-bottom: 2px solid transparent;
       }
       .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
-      .field { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 6px; }
+      .field { display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 6px; }
       .field label { color: var(--muted); font-size: 11px; }
-      .field input, .field select {
+      .field input {
         width: 100%; background: #0b1119; border: 1px solid var(--line); border-radius: 3px;
         color: var(--text); padding: 5px 7px; font: 12px/1.4 var(--mono);
       }
       .field input:disabled { color: var(--muted); }
       .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-      .leverage { display: grid; grid-template-columns: 34px 1fr 46px; align-items: center; gap: 6px; }
+      .leverage { display: grid; grid-template-columns: 32px 1fr 44px; align-items: center; gap: 6px; }
       .leverage input[type='range'] { width: 100%; }
-      .leverage b { font: 500 12px/1.4 var(--mono); text-align: right; }
       .checks { display: flex; gap: 12px; color: var(--dim); font-size: 11px; flex-wrap: wrap; }
       .checks label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-      .submit { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 2px; }
+      .submit { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
       .submit button {
-        border: 0; border-radius: 3px; padding: 8px 0; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+        border: 0; border-radius: 3px; padding: 8px 0; color: #fff; font-size: 13px;
+        font-weight: 600; cursor: pointer;
       }
       .submit .buy { background: var(--up); }
       .submit .sell { background: var(--down); }
@@ -107,12 +99,10 @@
       /* 图表区 */
       .chart-col { display: flex; flex-direction: column; }
       .chart-bar {
-        display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+        display: flex; align-items: center; gap: 6px; padding: 6px 10px;
         border-bottom: 1px solid var(--line-soft); flex-wrap: wrap;
       }
-      .chart-bar .readout { margin-left: auto; font: 11px/1.6 var(--mono); color: var(--dim); white-space: nowrap; }
-      .chart-bar .readout b { color: var(--text); font-weight: 500; }
-      #panes { padding: 4px 6px 6px; }
+      .sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
       .btn {
         background: #161d28; border: 1px solid #2a3646; border-radius: 3px; color: #a8b4c2;
         padding: 3px 8px; font-size: 11px; cursor: pointer;
@@ -120,16 +110,44 @@
       .btn:hover { color: var(--text); border-color: var(--accent); }
       .btn.on { color: #fff; background: rgba(59, 130, 246, 0.22); border-color: var(--accent); }
 
-      /* 底部表格 */
-      .bottom { border-top: 1px solid var(--line); background: var(--panel-2); }
+      #panes { padding: 4px 6px 0; }
+
+      /* 图表外壳：HTML 覆盖层，挂在主图那块画布上 */
+      .chrome { position: absolute; inset: 0; pointer-events: none; font-family: var(--mono); }
+      .chrome > * { position: absolute; }
+      .ohlc { display: flex; gap: 9px; font-size: 11px; white-space: nowrap; }
+      .ohlc .sym { color: var(--text); font-weight: 600; }
+      .ohlc .kv { color: var(--muted); }
+      .ohlc .kv b { font-weight: 500; color: var(--dim); }
+      .hline { height: 0; border-top: 1px dashed rgba(138, 151, 166, 0.55); }
+      .lastline { height: 0; border-top: 1px dashed var(--accent); }
+      .tag { padding: 2px 5px; border-radius: 2px; font-size: 11px; text-align: center; overflow: hidden; white-space: nowrap; }
+      .tag.price { background: rgba(138, 151, 166, 0.92); color: #0b0f16; }
+      .tag.time { background: rgba(138, 151, 166, 0.92); color: #0b0f16; }
+      .tag.last { color: #fff; }
+
+      .chart-foot {
+        display: flex; gap: 16px; padding: 6px 10px; border-top: 1px solid var(--line-soft);
+        font: 11px/1.6 var(--mono); color: var(--muted);
+      }
+      .chart-foot b { color: var(--dim); font-weight: 500; }
+
+      /* 底部三块 */
+      .bottom {
+        border-top: 1px solid var(--line); background: var(--panel-2); display: grid;
+        grid-template-columns: minmax(0, 3fr) minmax(0, 3fr) minmax(0, 2fr); gap: 1px;
+      }
       table { width: 100%; border-collapse: collapse; }
       th, td { padding: 5px 10px; text-align: right; font: 11px/1.6 var(--mono); white-space: nowrap; }
       th { color: var(--muted); font-weight: 400; border-bottom: 1px solid var(--line-soft); }
       th:first-child, td:first-child { text-align: left; }
       tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
-      td.empty { color: var(--muted); text-align: center; padding: 14px; }
+      td.empty { color: var(--muted); text-align: center; padding: 12px; }
       .cancel { color: var(--accent); cursor: pointer; }
-
+      pre.dump {
+        margin: 0; padding: 8px 10px; max-height: 132px; overflow: auto;
+        font: 10px/1.55 var(--mono); color: #9fb6d4; white-space: pre-wrap;
+      }
       .lead { color: var(--dim); margin: 12px 14px 16px; font-size: 11px; }
       .lead code { color: var(--accent); }
     </style>
@@ -141,8 +159,16 @@
       <div class="stat"><span>24h 涨跌</span><b id="t-chg">-</b></div>
       <div class="stat"><span>24h 高 / 低</span><b id="t-hilo">-</b></div>
       <div class="stat"><span>24h 量</span><b id="t-vol">-</b></div>
-      <div class="stat"><span>资金费率 / 倒计时</span><b id="t-funding">-</b></div>
+      <div class="stat"><span>资金费率 / 结算</span><b id="t-funding">-</b></div>
       <div class="tools">
+        <div class="tabs" id="seg-interval" style="border:0;padding:0">
+          <button type="button" data-interval="1m">1m</button>
+          <button type="button" data-interval="5m" class="on">5m</button>
+          <button type="button" data-interval="15m">15m</button>
+          <button type="button" data-interval="1H">1H</button>
+          <button type="button" data-interval="4H">4H</button>
+          <button type="button" data-interval="1D">1D</button>
+        </div>
         <button class="btn" id="btn-scheme">涨色：红</button>
         <button class="btn" id="btn-toggle">暂停</button>
         <button class="btn" id="btn-reset">重置</button>
@@ -163,14 +189,24 @@
         <div class="chart-bar">
           <button class="btn on" id="btn-ma">MA</button>
           <button class="btn" id="btn-boll">BOLL</button>
-          <span style="width:1px;height:16px;background:var(--line)"></span>
+          <span class="sep"></span>
+          <button class="btn on" data-pane="macd">MACD</button>
+          <button class="btn" data-pane="rsi">RSI</button>
+          <span class="sep"></span>
           <button class="btn" data-tool="hline">水平线</button>
+          <button class="btn" data-tool="vline">垂直线</button>
           <button class="btn" data-tool="trend">趋势线</button>
           <button class="btn" data-tool="rect">区间</button>
           <button class="btn" id="btn-del-drawing">删除选中</button>
-          <span class="readout" id="readout">-</span>
         </div>
         <div id="panes"></div>
+        <div class="chart-foot">
+          <span>收盘倒计时 <b id="s-countdown">--:--</b></span>
+          <span>下一根 <b id="s-next">-</b></span>
+          <span>已推送 <b id="s-pushed">0</b></span>
+          <span>fps <b id="s-fps">0</b></span>
+          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走</span>
+        </div>
       </div>
 
       <div class="col">
@@ -185,14 +221,8 @@
                 <button type="button" data-margin="isolated">逐仓</button>
               </div>
             </div>
-            <div class="field">
-              <label>价格</label>
-              <input id="o-price" class="mono" type="text" inputmode="decimal" />
-            </div>
-            <div class="field">
-              <label>数量</label>
-              <input id="o-size" class="mono" type="text" inputmode="decimal" value="0.5" />
-            </div>
+            <div class="field"><label>价格</label><input id="o-price" class="mono" type="text" inputmode="decimal" /></div>
+            <div class="field"><label>数量</label><input id="o-size" class="mono" type="text" inputmode="decimal" value="0.5" /></div>
             <div class="leverage">
               <label style="color:var(--muted);font-size:11px">杠杆</label>
               <input id="o-lev" type="range" min="1" max="50" value="10" />
@@ -231,13 +261,18 @@
           <tbody id="orders"></tbody>
         </table>
       </section>
+      <section class="blk">
+        <header>画线记录（数据坐标） <span class="right" id="d-count">0</span></header>
+        <pre class="dump" id="d-dump">[]</pre>
+      </section>
     </div>
 
     <p class="lead">
-      全部本地伪实时、不发任何网络请求。左侧盘口与右侧下单面板是页面自己的 HTML（不是图表库的事），
-      中间是 <code>createPaneStack</code> 的三块真副图（价格 / 成交量 / MACD）+ <code>createOverlaySeries</code>
-      的均线 + <code>createDrawingLayer</code> 的画线；抬头用 <code>createOhlcReadout</code>。
-      点盘口价格会填入下单价格框；限价单挂进委托表，市价单立即成交并进持仓。
+      一个页面把整套能力串起来：<code>createPaneStack</code> 的三块真副图（价格 / 成交量 / MACD 或 RSI，
+      严格对齐 + 联动）、<code>createOverlaySeries</code> 的均线、<code>createDrawingLayer</code> 的画线、
+      <code>createOhlcReadout</code> 的抬头、<code>project.ts</code> 的投影（最新价线 / 右轴价签 /
+      十字光标两侧标签都是拿它定位的 DOM）。盘口、下单、持仓、委托是页面自己的 HTML，图表库不管这些。
+      点盘口价格填单；限价挂单、市价成交、现价穿过限价单撮合、撤单都是真交互。
     </p>
 
     <script src="../node_modules/ice-render/dist/index.umd.js"></script>
@@ -245,11 +280,22 @@
     <script src="../dist/index.umd.js"></script>
     <script>
       class TerminalPage {
-        static COUNT = 120;
-        static STEP_MS = 5 * 60e3;
+        /**
+         * 各周期。采样条数的取法要保证**类目标签逐根唯一** —— 类目轴按字符串去重，
+         * 标签重复会让两根 K 线塌缩到同一个类目上（命中与抬头全乱）。
+         */
+        static INTERVALS = {
+          '1m': { ms: 60e3, count: 120 },
+          '5m': { ms: 5 * 60e3, count: 120 },
+          '15m': { ms: 15 * 60e3, count: 95 },
+          '1H': { ms: 3600e3, count: 120 },
+          '4H': { ms: 4 * 3600e3, count: 90 },
+          '1D': { ms: 86400e3, count: 90 },
+        };
         static TICK_MS = 600;
         static TICKS_PER_BAR = 3;
-        static CHART_HEIGHT = 520;
+        static CHART_HEIGHT = 540;
+        static AXIS_CHARS = 8;
         static BASE_PRICE = 42000;
         static LEVELS = 5;
         static EQUITY = 100000;
@@ -276,24 +322,31 @@
         stack = null;
         drawing = null;
         readout = null;
+        chrome = null;
+        canvasEl = null;
         running = true;
         timer = null;
+        intervalKey = '5m';
         price = TerminalPage.BASE_PRICE;
         open24 = TerminalPage.BASE_PRICE;
         high24 = TerminalPage.BASE_PRICE;
         low24 = TerminalPage.BASE_PRICE;
         volume24 = 0;
         ticksInBar = 0;
+        pushed = 0;
         frames = 0;
         fpsAt = 0;
         orderType = 'limit';
         marginMode = 'cross';
         scheme = 'redUp';
         indicators = { ma: true, boll: false };
+        paneKind = 'macd';
         position = null;
         orders = [];
         orderSeq = 0;
         book = { asks: [], bids: [] };
+        pointerY = null;
+        chromeSig = '';
         readoutSig = '';
 
         constructor() {
@@ -302,6 +355,7 @@
           this.bind();
           this.buildBook();
           this.paintAll();
+          this.syncChrome(true);
           this.timer = setInterval(() => this.step(), TerminalPage.TICK_MS);
           this.fpsAt = performance.now();
         }
@@ -314,14 +368,102 @@
           return this.scheme === 'redUp' ? '#12b76a' : '#f04438';
         }
 
+        get interval() {
+          return TerminalPage.INTERVALS[this.intervalKey];
+        }
+
+        get candleSeries() {
+          return {
+            id: 'k',
+            type: 'candlestick',
+            name: '价格',
+            data: this.candles,
+            barWidth: 0.66,
+            candle: { upColor: this.upColor, downColor: this.downColor, borderWidth: 1 },
+          };
+        }
+
+        get priceOption() {
+          const spec = {};
+          if (this.indicators.ma) spec.ma = [7, 25];
+          if (this.indicators.boll) spec.boll = { period: 20, multiplier: 2 };
+          return {
+            legend: { show: false },
+            animation: { enabled: false },
+            tooltip: { show: false },
+            // 引擎只负责竖线；横线与两侧 chip 由页面覆盖层画
+            crosshair: { show: true, axis: 'x', showAxisLabel: false },
+            // x 轴标签只在最下面那块副图上显示：上面两块藏掉，省纵向空间也更干净
+            xAxis: { type: 'category', show: false },
+            yAxis: { position: 'right' },
+            volume: false,
+            series: [this.candleSeries].concat(ICETradingChart.createOverlaySeries(this.candleSeries, spec)),
+          };
+        }
+
+        get volumeOption() {
+          return {
+            legend: { show: false },
+            animation: { enabled: false },
+            tooltip: { show: false },
+            xAxis: { type: 'category', show: false },
+            yAxis: { position: 'right', tickCount: 3 },
+            series: [
+              ICETradingChart.buildVolumeSeries(this.candleSeries, {
+                axisIndex: 0,
+                barWidth: 0.56,
+                upColor: this.upColor,
+                downColor: this.downColor,
+              }),
+            ],
+          };
+        }
+
+        get indicatorPaneOption() {
+          if (this.paneKind === 'rsi') {
+            const built = ICETradingChart.createRsiPaneOption(this.candleSeries, { period: 14 });
+            return {
+              legend: { show: false },
+              animation: { enabled: false },
+              tooltip: { show: false },
+              xAxis: { type: 'category' },
+              yAxis: { position: 'right', tickCount: 3, nice: false, min: 0, max: 100 },
+              series: built.series,
+              annotation: built.annotation,
+            };
+          }
+          const built = ICETradingChart.createMacdPaneOption(this.candleSeries, {
+            upColor: this.upColor,
+            downColor: this.downColor,
+          });
+          const range = ICETradingChart.macdRange(this.candleSeries, {});
+          return {
+            legend: { show: false },
+            animation: { enabled: false },
+            tooltip: { show: false },
+            xAxis: { type: 'category' },
+            yAxis: {
+              position: 'right',
+              tickCount: 3,
+              nice: false,
+              min: range ? range.min : undefined,
+              max: range ? range.max : undefined,
+            },
+            series: built.series,
+          };
+        }
+
         labelOf(at) {
+          const interval = this.interval;
           const date = new Date(at);
           const day = `${TerminalPage.pad2(date.getMonth() + 1)}-${TerminalPage.pad2(date.getDate())}`;
+          if (interval.ms >= 86400e3) return day;
           const clock = `${TerminalPage.pad2(date.getHours())}:${TerminalPage.pad2(date.getMinutes())}`;
-          return TerminalPage.COUNT * TerminalPage.STEP_MS >= 86400e3 ? `${day} ${clock}` : clock;
+          return interval.count * interval.ms >= 86400e3 ? `${day} ${clock}` : clock;
         }
 
         seed() {
+          const interval = this.interval;
           const now = Date.now();
           this.candles = [];
           this.price = TerminalPage.BASE_PRICE;
@@ -330,10 +472,11 @@
           this.low24 = TerminalPage.BASE_PRICE;
           this.volume24 = 0;
           this.ticksInBar = 0;
+          this.pushed = 0;
           this.position = null;
           this.orders = [];
-          for (let i = 0; i < TerminalPage.COUNT; i++) {
-            this.candles.push(this.makeBar(now - (TerminalPage.COUNT - 1 - i) * TerminalPage.STEP_MS));
+          for (let i = 0; i < interval.count; i++) {
+            this.candles.push(this.makeBar(now - (interval.count - 1 - i) * interval.ms));
           }
         }
 
@@ -358,87 +501,60 @@
           };
         }
 
-        get candleSeries() {
-          return {
-            id: 'k',
-            type: 'candlestick',
-            name: '价格',
-            data: this.candles,
-            barWidth: 0.66,
-            candle: { upColor: this.upColor, downColor: this.downColor, borderWidth: 1 },
-          };
-        }
-
-        get priceOption() {
-          const spec = {};
-          if (this.indicators.ma) spec.ma = [7, 25];
-          if (this.indicators.boll) spec.boll = { period: 20, multiplier: 2 };
-          return {
-            legend: { show: false },
-            animation: { enabled: false },
-            tooltip: { show: false },
-            crosshair: { show: true, axis: 'x', showAxisLabel: false },
-            xAxis: { type: 'category' },
-            yAxis: { position: 'right' },
-            volume: false,
-            series: [this.candleSeries].concat(ICETradingChart.createOverlaySeries(this.candleSeries, spec)),
-          };
-        }
-
-        get volumeOption() {
-          return {
-            legend: { show: false },
-            animation: { enabled: false },
-            tooltip: { show: false },
-            xAxis: { type: 'category' },
-            yAxis: { position: 'right', tickCount: 3 },
-            series: [
-              ICETradingChart.buildVolumeSeries(this.candleSeries, {
-                axisIndex: 0,
-                barWidth: 0.56,
-                upColor: this.upColor,
-                downColor: this.downColor,
-              }),
-            ],
-          };
-        }
-
-        get macdOption() {
-          const built = ICETradingChart.createMacdPaneOption(this.candleSeries, {
-            upColor: this.upColor,
-            downColor: this.downColor,
-          });
-          const range = ICETradingChart.macdRange(this.candleSeries, {});
-          return {
-            legend: { show: false },
-            animation: { enabled: false },
-            tooltip: { show: false },
-            xAxis: { type: 'category' },
-            yAxis: {
-              position: 'right',
-              tickCount: 3,
-              nice: false,
-              min: range ? range.min : undefined,
-              max: range ? range.max : undefined,
-            },
-            series: built.series,
-          };
-        }
-
         mount() {
           this.stack = ICETradingChart.createPaneStack(
             document.getElementById('panes'),
             [
               { id: 'price', primary: true, weight: 5, option: () => this.priceOption, extras: { autoVolume: false } },
               { id: 'volume', weight: 2, option: () => this.volumeOption },
-              { id: 'macd', weight: 2, option: () => this.macdOption },
+              { id: 'indicator', weight: 2, option: () => this.indicatorPaneOption },
             ],
-            { height: TerminalPage.CHART_HEIGHT, axisLabelChars: 8, gap: 6 }
+            { height: TerminalPage.CHART_HEIGHT, axisLabelChars: TerminalPage.AXIS_CHARS, gap: 6 }
           );
           const priceChart = this.stack.chartOf('price');
+          this.canvasEl = priceChart.ice.canvasEl;
           this.readout = ICETradingChart.createOhlcReadout(priceChart, { volume: {} });
-          this.drawing = ICETradingChart.createDrawingLayer(priceChart);
+          this.drawing = ICETradingChart.createDrawingLayer(priceChart, {
+            onChange: () => this.renderDrawings(),
+          });
+          this.mountChrome(this.stack.holderOf('price'));
+          this.renderDrawings();
           window.addEventListener('resize', () => this.resize());
+        }
+
+        /** 图表外壳：抬头 / 最新价线 + 右轴价签 / 十字光标横线与两个 chip。 */
+        mountChrome(holder) {
+          const layer = document.createElement('div');
+          layer.className = 'chrome';
+          layer.innerHTML =
+            '<div class="ohlc">' +
+            '<span class="sym">价格</span>' +
+            '<span class="kv">开 <b data-k="open">-</b></span>' +
+            '<span class="kv">高 <b data-k="high">-</b></span>' +
+            '<span class="kv">低 <b data-k="low">-</b></span>' +
+            '<span class="kv">收 <b data-k="close">-</b></span>' +
+            '<span class="kv">量 <b data-k="volume">-</b></span>' +
+            '<span class="kv" data-k="chg">-</span>' +
+            '<span class="kv" data-k="time">-</span>' +
+            '</div>' +
+            '<div class="hline"></div>' +
+            '<div class="lastline"></div>' +
+            '<div class="tag price">-</div>' +
+            '<div class="tag last">-</div>' +
+            '<div class="tag time">-</div>';
+          holder.appendChild(layer);
+          const fields = {};
+          for (const node of layer.querySelectorAll('[data-k]')) fields[node.getAttribute('data-k')] = node;
+          this.chrome = {
+            layer,
+            fields,
+            ohlc: layer.querySelector('.ohlc'),
+            hline: layer.querySelector('.hline'),
+            lastline: layer.querySelector('.lastline'),
+            ptag: layer.querySelector('.tag.price'),
+            ltag: layer.querySelector('.tag.last'),
+            xtag: layer.querySelector('.tag.time'),
+          };
         }
 
         bind() {
@@ -446,25 +562,39 @@
             this.running = !this.running;
             document.getElementById('btn-toggle').textContent = this.running ? '暂停' : '继续';
           });
-          document.getElementById('btn-reset').addEventListener('click', () => {
-            this.seed();
-            this.drawing.clear();
-            this.readoutSig = '';
-            this.stack.refresh({ animate: 'enter', preserveView: false });
-            this.buildBook();
-            this.paintAll();
-          });
+          document.getElementById('btn-reset').addEventListener('click', () => this.rebuild('已重置'));
           document.getElementById('btn-scheme').addEventListener('click', () => {
             this.scheme = this.scheme === 'redUp' ? 'greenUp' : 'redUp';
             document.getElementById('btn-scheme').textContent = this.scheme === 'redUp' ? '涨色：红' : '涨色：绿';
-            this.readoutSig = '';
-            this.stack.refresh({ animate: false, preserveView: true });
-            this.paintAll();
+            this.invalidate();
+          });
+          document.getElementById('seg-interval').addEventListener('click', (event) => {
+            const key = event.target.getAttribute && event.target.getAttribute('data-interval');
+            if (!key || key === this.intervalKey) return;
+            this.intervalKey = key;
+            for (const button of document.querySelectorAll('#seg-interval button')) {
+              button.classList.toggle('on', button === event.target);
+            }
+            // 换了周期，类目标签整批换掉：旧的画线锚点没有对应类目了，视窗也要重置
+            this.drawing.clear();
+            this.seed();
+            this.invalidate(true);
+            this.setHint(`已切到 ${key}`);
           });
           document.getElementById('btn-ma').addEventListener('click', (event) => this.toggleIndicator('ma', event.target));
           document.getElementById('btn-boll').addEventListener('click', (event) => this.toggleIndicator('boll', event.target));
+          for (const button of document.querySelectorAll('[data-pane]')) {
+            button.addEventListener('click', () => {
+              this.paneKind = button.getAttribute('data-pane');
+              for (const other of document.querySelectorAll('[data-pane]')) {
+                other.classList.toggle('on', other === button);
+              }
+              this.stack.refresh({ animate: false, preserveView: true });
+            });
+          }
           this.bindDrawingTools();
           this.bindOrderForm();
+          this.bindPointer();
         }
 
         bindDrawingTools() {
@@ -475,11 +605,14 @@
               const next = this.drawing.mode() === kind ? null : kind;
               this.drawing.setMode(next);
               for (const other of buttons) other.classList.toggle('on', other === button && !!next);
+              this.setHint(next ? '在图上点一下（趋势线 / 区间点两下）' : '已退出画线模式');
             });
           }
           document.getElementById('btn-del-drawing').addEventListener('click', () => {
             const selected = this.drawing.selected();
-            if (selected) this.drawing.remove(selected.id);
+            if (!selected) return this.setHint('先点一下某条线选中它');
+            this.drawing.remove(selected.id);
+            this.setHint(`已删除 ${selected.id}`);
           });
         }
 
@@ -495,7 +628,7 @@
               }
               document.getElementById('o-price').disabled = type === 'market';
               document.getElementById('o-hint').textContent =
-                type === 'market' ? '市价单立即按盘口成交' : '限价单挂进委托表，价格触及时成交';
+                type === 'market' ? '市价单立即按盘口成交' : '限价单挂进委托表，现价触及时成交';
             }
             if (margin) {
               this.marginMode = margin;
@@ -522,64 +655,112 @@
           });
         }
 
+        bindPointer() {
+          this.canvasEl.addEventListener('pointermove', (event) => {
+            const rect = this.canvasEl.getBoundingClientRect();
+            this.pointerY = event.clientY - rect.top;
+            this.syncChrome();
+          });
+          this.canvasEl.addEventListener('pointerleave', () => {
+            this.pointerY = null;
+            this.syncChrome();
+          });
+        }
+
         pickBookPrice(event) {
           const row = event.target.closest ? event.target.closest('.book-row') : null;
           if (!row || !row.dataset.price) return;
           document.getElementById('o-price').value = row.dataset.price;
+          this.setHint(`已填入盘口价 ${row.dataset.price}`);
         }
 
         toggleIndicator(key, button) {
           this.indicators[key] = !this.indicators[key];
           button.classList.toggle('on', this.indicators[key]);
-          this.stack.refresh({ animate: false, preserveView: true });
+          this.invalidate();
+        }
+
+        setHint(text) {
+          document.getElementById('s-hint').textContent = text;
+        }
+
+        /**
+         * 影响颜色 / 数据的改动：重画图表 + 让外壳的签名失效。
+         *
+         * `resetView` 用于「类目整批换掉」的场景（切换周期）：这时保留旧视窗没有意义，
+         * 窗口里的类目已经不是原来那批了。
+         */
+        invalidate(resetView) {
+          this.chromeSig = '';
+          this.readoutSig = '';
+          this.stack.refresh({ animate: false, preserveView: !resetView });
+          this.paintAll();
+          this.syncChrome(true);
+        }
+
+        rebuild(hint) {
+          this.seed();
+          this.drawing.clear();
+          this.invalidate();
+          this.setHint(hint);
         }
 
         resize() {
           this.stack.resize();
           this.drawing.refresh(true);
+          this.chromeSig = '';
+          this.syncChrome(true);
         }
 
         step() {
           if (!this.running) return;
+          const interval = this.interval;
           const last = this.candles[this.candles.length - 1];
           const next = this.price + (Math.random() - 0.5) * this.price * 0.0016;
           this.price = next;
           last.c = TerminalPage.round2(next);
           last.h = TerminalPage.round2(Math.max(last.h, next));
           last.l = TerminalPage.round2(Math.min(last.l, next));
-          last.v += Math.round(20 + Math.random() * 120);
-          this.volume24 += Math.round(20 + Math.random() * 120);
+          const addVolume = Math.round(20 + Math.random() * 120);
+          last.v += addVolume;
+          this.volume24 += addVolume;
           this.high24 = Math.max(this.high24, next);
           this.low24 = Math.min(this.low24, next);
+          this.pushed += 1;
           this.ticksInBar += 1;
           if (this.ticksInBar >= TerminalPage.TICKS_PER_BAR) {
             this.ticksInBar = 0;
-            this.candles.push(this.makeBar(last.at + TerminalPage.STEP_MS));
-            if (this.candles.length > TerminalPage.COUNT) this.candles.shift();
+            this.candles.push(this.makeBar(last.at + interval.ms));
+            if (this.candles.length > interval.count) this.candles.shift();
           }
           this.matchOrders();
           this.stack.refresh({ animate: false, preserveView: true });
           this.buildBook();
           this.paintAll();
+          this.syncChrome();
         }
 
-        /** 盘口：围绕现价造十档，深度按距离衰减（伪数据，但量纲与排序是真的）。 */
+        /** 盘口：围绕现价造十档，深度按档位衰减（伪数据，但排序与量纲是真的）。 */
         buildBook() {
           const tick = Math.max(0.01, this.price * 0.00004);
           const asks = [];
           const bids = [];
           for (let i = 0; i < TerminalPage.LEVELS; i++) {
-            asks.push({ price: TerminalPage.round2(this.price + tick * (i + 1)), size: TerminalPage.round2(0.2 + Math.random() * 2.4) });
-            bids.push({ price: TerminalPage.round2(this.price - tick * (i + 1)), size: TerminalPage.round2(0.2 + Math.random() * 2.4) });
+            asks.push({
+              price: TerminalPage.round2(this.price + tick * (i + 1)),
+              size: TerminalPage.round2(0.2 + Math.random() * 2.4),
+            });
+            bids.push({
+              price: TerminalPage.round2(this.price - tick * (i + 1)),
+              size: TerminalPage.round2(0.2 + Math.random() * 2.4),
+            });
           }
           this.book = { asks: asks.reverse(), bids };
         }
 
         renderBook() {
-          const maxSize = Math.max.apply(
-            null,
-            this.book.asks.concat(this.book.bids).map((row) => row.size).concat([0.001])
-          );
+          const all = this.book.asks.concat(this.book.bids).map((row) => row.size).concat([0.001]);
+          const maxSize = Math.max.apply(null, all);
           const row = (level, side) => {
             const depth = Math.max(2, Math.round((level.size / maxSize) * 100));
             const color = side === 'ask' ? this.upColor : this.downColor;
@@ -588,7 +769,7 @@
               `<i class="depth" style="width:${depth}%;background:${color}22"></i>` +
               `<span class="px" style="color:${color}">${TerminalPage.price(level.price)}</span>` +
               `<span class="sz">${level.size.toFixed(2)}</span>` +
-              `</div>`
+              '</div>'
             );
           };
           document.getElementById('book-asks').innerHTML = this.book.asks.map((level) => row(level, 'ask')).join('');
@@ -613,45 +794,46 @@
           const chg = document.getElementById('t-chg');
           chg.textContent = `${ICETradingChart.formatSigned(TerminalPage.round2(change))} (${TerminalPage.pct(pct)})`;
           chg.style.color = color;
-          document.getElementById('t-hilo').textContent = `${TerminalPage.price(this.high24)} / ${TerminalPage.price(this.low24)}`;
+          document.getElementById('t-hilo').textContent =
+            `${TerminalPage.price(this.high24)} / ${TerminalPage.price(this.low24)}`;
           document.getElementById('t-vol').textContent = ICETradingChart.formatVolume(this.volume24);
           const remaining = 8 * 3600e3 - (Date.now() % (8 * 3600e3));
           const hours = Math.floor(remaining / 3600e3);
           const minutes = Math.floor((remaining % 3600e3) / 60e3);
-          document.getElementById('t-funding').textContent =
-            `0.0100% / ${TerminalPage.pad2(hours)}:${TerminalPage.pad2(minutes)}`;
+          document.getElementById('t-funding').textContent = `0.0100% / ${TerminalPage.pad2(hours)}:${TerminalPage.pad2(minutes)}`;
         }
 
         renderPosition() {
           const body = document.getElementById('positions');
-          const leverage = Number(document.getElementById('o-lev').value) || 1;
           if (!this.position) {
             body.innerHTML = '<tr><td class="empty" colspan="8">暂无持仓</td></tr>';
             document.getElementById('p-count').textContent = '0';
+            document.getElementById('o-avail').textContent = `可用 ${TerminalPage.price(TerminalPage.EQUITY)}`;
             return;
           }
           const pos = this.position;
-          const mark = this.price;
           const direction = pos.side === 'long' ? 1 : -1;
-          const pnl = (mark - pos.entry) * pos.size * direction;
-          const notional = mark * pos.size;
-          const margin = notional / pos.leverage;
-          const liq = pos.side === 'long' ? pos.entry * (1 - 1 / pos.leverage + 0.004) : pos.entry * (1 + 1 / pos.leverage - 0.004);
-          const color = pnl >= 0 ? this.upColor : this.downColor;
+          const pnl = (this.price - pos.entry) * pos.size * direction;
+          const margin = (this.price * pos.size) / pos.leverage;
+          const liq =
+            pos.side === 'long'
+              ? pos.entry * (1 - 1 / pos.leverage + 0.004)
+              : pos.entry * (1 + 1 / pos.leverage - 0.004);
+          const sideColor = pos.side === 'long' ? this.upColor : this.downColor;
           body.innerHTML =
-            `<tr>` +
-            `<td style="color:${pos.side === 'long' ? this.upColor : this.downColor}">${pos.side === 'long' ? '多' : '空'} ${this.marginMode === 'cross' ? '全仓' : '逐仓'}</td>` +
+            '<tr>' +
+            `<td style="color:${sideColor}">${pos.side === 'long' ? '多' : '空'} ${this.marginMode === 'cross' ? '全仓' : '逐仓'}</td>` +
             `<td>${pos.size.toFixed(3)}</td>` +
             `<td>${TerminalPage.price(pos.entry)}</td>` +
-            `<td>${TerminalPage.price(mark)}</td>` +
-            `<td style="color:${color}">${ICETradingChart.formatSigned(TerminalPage.round2(pnl))}</td>` +
+            `<td>${TerminalPage.price(this.price)}</td>` +
+            `<td style="color:${pnl >= 0 ? this.upColor : this.downColor}">${ICETradingChart.formatSigned(TerminalPage.round2(pnl))}</td>` +
             `<td>${TerminalPage.price(TerminalPage.round2(margin))}</td>` +
             `<td>${TerminalPage.price(TerminalPage.round2(liq))}</td>` +
             `<td>${pos.leverage}×</td>` +
-            `</tr>`;
+            '</tr>';
           document.getElementById('p-count').textContent = '1';
-          document.getElementById('o-avail').textContent = `可用 ${TerminalPage.price(TerminalPage.round2(TerminalPage.EQUITY - margin))}`;
-          void leverage;
+          document.getElementById('o-avail').textContent =
+            `可用 ${TerminalPage.price(TerminalPage.round2(TerminalPage.EQUITY - margin))}`;
         }
 
         renderOrders() {
@@ -665,40 +847,138 @@
             .map((order) => {
               const color = order.side === 'long' ? this.upColor : this.downColor;
               return (
-                `<tr>` +
+                '<tr>' +
                 `<td>${order.time}</td>` +
                 `<td style="color:${color}">${order.side === 'long' ? '买入' : '卖出'}</td>` +
                 `<td>${order.type === 'limit' ? '限价' : '市价'}</td>` +
                 `<td>${TerminalPage.price(order.price)}</td>` +
                 `<td>${order.size.toFixed(3)}</td>` +
-                `<td>${order.status === 'partial' ? '部分成交' : '已挂单'}</td>` +
+                '<td>已挂单</td>' +
                 `<td><span class="cancel" data-cancel="${order.id}">撤单</span></td>` +
-                `</tr>`
+                '</tr>'
               );
             })
             .join('');
         }
 
+        renderDrawings() {
+          const list = this.drawing ? this.drawing.dump() : [];
+          document.getElementById('d-count').textContent = String(list.length);
+          document.getElementById('d-dump').textContent = JSON.stringify(list, null, 1);
+        }
+
         renderReadout() {
           const reading = this.readout.read();
-          if (!reading) return;
-          // 抬头每帧都调，所以按签名增量写 DOM
+          if (!reading || !this.chrome) return;
           const signature = `${reading.index}:${reading.close}:${reading.volume}:${this.scheme}`;
           if (signature === this.readoutSig) return;
           this.readoutSig = signature;
           const color = reading.rising ? this.upColor : this.downColor;
-          document.getElementById('readout').innerHTML =
-            `<b>${String(reading.xValue)}</b> · ` +
-            `开 <b>${TerminalPage.price(reading.open)}</b> 高 <b>${TerminalPage.price(reading.high)}</b> ` +
-            `低 <b>${TerminalPage.price(reading.low)}</b> ` +
-            `收 <b style="color:${color}">${TerminalPage.price(reading.close)}</b> ` +
-            `${ICETradingChart.formatSigned(reading.change)} ${TerminalPage.pct(reading.changePct)} · ` +
-            `量 <b>${reading.volume === null ? '-' : ICETradingChart.formatVolume(reading.volume)}</b>`;
+          const field = (key) => this.chrome.fields[key];
+          field('open').textContent = TerminalPage.price(reading.open);
+          field('high').textContent = TerminalPage.price(reading.high);
+          field('low').textContent = TerminalPage.price(reading.low);
+          field('close').textContent = TerminalPage.price(reading.close);
+          field('close').style.color = color;
+          field('volume').textContent = reading.volume === null ? '-' : ICETradingChart.formatVolume(reading.volume);
+          field('chg').textContent = `${ICETradingChart.formatSigned(TerminalPage.round2(reading.change))} ${TerminalPage.pct(reading.changePct)}`;
+          field('chg').style.color = color;
+          field('time').textContent = String(reading.xValue);
+          const plot = ICETradingChart.plotRect(this.stack.chartOf('price'));
+          if (plot) {
+            this.chrome.ohlc.style.left = `${plot.x + 8}px`;
+            this.chrome.ohlc.style.top = `${plot.y + 4}px`;
+          }
+        }
+
+        /** 外壳同步：按几何签名增量写 DOM（每帧无条件写会掉帧）。 */
+        syncChrome(force) {
+          const priceChart = this.stack ? this.stack.chartOf('price') : null;
+          if (!priceChart || !this.chrome) return;
+          const plot = ICETradingChart.plotRect(priceChart);
+          if (!plot) return;
+          const reading = this.readout.read();
+          const last = this.candles[this.candles.length - 1];
+          const lastY = ICETradingChart.priceToY(priceChart, last.c, 0);
+          const signature = [
+            plot.x, plot.y, plot.width, plot.height,
+            reading ? reading.index : -1, last.c, this.pointerY, this.scheme, this.intervalKey,
+          ].join('|');
+          if (!force && signature === this.chromeSig) return;
+          this.chromeSig = signature;
+
+          this.paintLastPrice(plot, last, lastY);
+          this.paintPointer(priceChart, plot);
+          this.renderTopbar();
+          this.renderPosition();
+          this.renderOrders();
+        }
+
+        paintLastPrice(plot, last, lastY) {
+          const color = last.c >= last.o ? this.upColor : this.downColor;
+          this.chrome.lastline.style.left = `${plot.x}px`;
+          this.chrome.lastline.style.width = `${plot.width}px`;
+          this.chrome.lastline.style.top = `${lastY}px`;
+          this.chrome.lastline.style.borderTopColor = color;
+          const box = this.tagBox(plot);
+          const tag = this.chrome.ltag;
+          tag.style.left = `${box.left}px`;
+          tag.style.width = `${box.width}px`;
+          tag.style.top = `${lastY - 9}px`;
+          tag.style.background = color;
+          tag.textContent = TerminalPage.price(last.c);
+        }
+
+        paintPointer(priceChart, plot) {
+          const pointerY = this.pointerY;
+          const price = pointerY === null ? null : ICETradingChart.yToPrice(priceChart, pointerY, 0);
+          const inside = pointerY !== null && price !== null && pointerY >= plot.y && pointerY <= plot.y + plot.height;
+          this.chrome.hline.style.display = inside ? 'block' : 'none';
+          this.chrome.ptag.style.display = inside ? 'block' : 'none';
+          if (inside && pointerY !== null) {
+            const box = this.tagBox(plot);
+            this.chrome.hline.style.left = `${plot.x}px`;
+            this.chrome.hline.style.width = `${plot.width}px`;
+            this.chrome.hline.style.top = `${pointerY}px`;
+            this.chrome.ptag.style.left = `${box.left}px`;
+            this.chrome.ptag.style.width = `${box.width}px`;
+            this.chrome.ptag.style.top = `${pointerY - 9}px`;
+            this.chrome.ptag.textContent = TerminalPage.price(price);
+          }
+          const hover = priceChart.controller && priceChart.controller.hover;
+          const reading = this.readout.read();
+          const x = hover && reading ? ICETradingChart.categoryToX(priceChart, reading.xValue) : null;
+          if (x !== null) {
+            this.chrome.xtag.style.display = 'block';
+            this.chrome.xtag.style.left = `${x - 26}px`;
+            this.chrome.xtag.style.width = '52px';
+            this.chrome.xtag.style.top = `${plot.y + plot.height + 3}px`;
+            this.chrome.xtag.textContent = String(reading.xValue);
+          } else {
+            this.chrome.xtag.style.display = 'none';
+          }
+        }
+
+        /** 右侧价签的位置与宽度：贴着绘图区右边缘，但不越出画布。 */
+        tagBox(plot) {
+          const canvasWidth = this.canvasEl.getBoundingClientRect().width;
+          const left = plot.x + plot.width + 2;
+          const width = Math.max(40, Math.min(92, canvasWidth - left - 2));
+          return { left, width };
+        }
+
+        countdown() {
+          const interval = this.interval;
+          const now = Date.now();
+          const remaining = Math.max(0, Math.ceil(now / interval.ms) * interval.ms - now);
+          const mm = Math.floor(remaining / 60e3);
+          const ss = Math.floor((remaining % 60e3) / 1000);
+          return `${TerminalPage.pad2(mm)}:${TerminalPage.pad2(ss)}`;
         }
 
         paintAll() {
-          this.renderTopbar();
           this.renderBook();
+          this.renderTopbar();
           this.renderPosition();
           this.renderOrders();
           this.renderReadout();
@@ -709,11 +989,8 @@
           const pending = [];
           for (const order of this.orders) {
             const hit = order.side === 'long' ? this.price <= order.price : this.price >= order.price;
-            if (hit) {
-              this.applyFill(order.side, order.price, order.size, order.leverage);
-            } else {
-              pending.push(order);
-            }
+            if (hit) this.applyFill(order.side, order.price, order.size, order.leverage);
+            else pending.push(order);
           }
           this.orders = pending;
         }
@@ -725,7 +1002,7 @@
             const realized = (price - this.position.entry) * closeSize * direction;
             this.position.size -= closeSize;
             if (this.position.size <= 0.0001) this.position = null;
-            document.getElementById('o-hint').textContent = `平仓 ${closeSize.toFixed(3)}，实现盈亏 ${ICETradingChart.formatSigned(TerminalPage.round2(realized))}`;
+            this.setHint(`平仓 ${closeSize.toFixed(3)}，实现盈亏 ${ICETradingChart.formatSigned(TerminalPage.round2(realized))}`);
             return;
           }
           if (!this.position) {
@@ -742,17 +1019,13 @@
           const size = Number(document.getElementById('o-size').value);
           const leverage = Number(document.getElementById('o-lev').value) || 1;
           const reduceOnly = document.getElementById('o-ro').checked;
-          if (!isFinite(size) || size <= 0) {
-            document.getElementById('o-hint').textContent = '数量不合法';
-            return;
-          }
+          if (!isFinite(size) || size <= 0) return this.setHint('数量不合法');
           if (reduceOnly && (!this.position || this.position.side === side)) {
-            document.getElementById('o-hint').textContent = '只减仓：当前没有可减的对手方向持仓';
-            return;
+            return this.setHint('只减仓：当前没有可减的对手方向持仓');
           }
           if (this.orderType === 'market') {
             this.applyFill(side, TerminalPage.round2(this.price), size, leverage);
-            document.getElementById('o-hint').textContent = `市价成交 ${size.toFixed(3)} @ ${TerminalPage.price(this.price)}`;
+            this.setHint(`市价成交 ${size.toFixed(3)} @ ${TerminalPage.price(this.price)}`);
           } else {
             const price = Number(document.getElementById('o-price').value) || TerminalPage.round2(this.price);
             this.orderSeq += 1;
@@ -769,25 +1042,30 @@
                 time: `${TerminalPage.pad2(now.getHours())}:${TerminalPage.pad2(now.getMinutes())}:${TerminalPage.pad2(now.getSeconds())}`,
               },
             ]);
-            document.getElementById('o-hint').textContent = `限价挂单 ${size.toFixed(3)} @ ${TerminalPage.price(Number(price))}`;
+            this.setHint(`限价挂单 ${size.toFixed(3)} @ ${TerminalPage.price(Number(price))}`);
           }
           this.paintAll();
         }
 
         cancelOrder(id) {
           this.orders = this.orders.filter((order) => order.id !== id);
-          document.getElementById('o-hint').textContent = `已撤单 ${id}`;
+          this.setHint(`已撤单 ${id}`);
           this.paintAll();
         }
 
         onFrame(now) {
           this.frames += 1;
           if (now - this.fpsAt >= 500) {
+            document.getElementById('s-fps').textContent = String(Math.round((this.frames / (now - this.fpsAt)) * 1000));
+            document.getElementById('s-countdown').textContent = this.countdown();
+            document.getElementById('s-pushed').textContent = String(this.pushed);
+            const last = this.candles[this.candles.length - 1];
+            document.getElementById('s-next').textContent = this.labelOf(last.at + this.interval.ms);
             this.frames = 0;
             this.fpsAt = now;
           }
           this.renderReadout();
-          void this.frames;
+          this.syncChrome();
         }
       }
 

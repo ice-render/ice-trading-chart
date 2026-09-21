@@ -139,10 +139,17 @@ ice-chart 归一化时把 `y === null` 的点写成 `top: 0`（`normalize.ts`）
 
 ## 示例页
 
-`examples/*.html` 一律「**一页 = 一个类**」，内联脚本里不出现模块级 `function` / `let`，
-刷新入口统一叫 `onUpdate()`。写法契约的单一来源是
-`ice-web-components/docs/guides/app-pages.md`（本仓示例页是伪实时演示，
-`onUpdate()` 由页面自己的定时器调用）。
+**本仓只有一个示例页** `examples/terminal.html`（完整交易终端屏）—— 用户明确要求把能力
+整合到一个综合示例里，而不是摊成几个分页（分页版本在 git 历史里，需要时可取回）。
+
+它仍然守家族的写法契约：`examples/*.html` 一律「**一页 = 一个类**」，内联脚本里不出现
+模块级 `function` / `let`，成员顺序 `S*T*F*C*(A|M)*`。写法契约的单一来源是
+`ice-web-components/docs/guides/app-pages.md`（本仓示例是伪实时演示，
+刷新原本由页面自己的定时器驱动）。
+
+**页面结构**（改之前先看这里）：顶部行情条 / 左侧盘口 / 中间三 pane 图表 + 外壳覆盖层 /
+右侧下单面板 / 底部「持仓 · 委托 · 画线记录」。图表外壳（抬头、最新价线、右轴价签、
+十字光标两侧 chip）挂在 `stack.holderOf('price')` 上，按几何签名增量同步。
 
 ## 端口
 

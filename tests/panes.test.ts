@@ -125,6 +125,17 @@ describe('createPaneStack（真副图）', () => {
     stack.destroy();
   });
 
+  it('holderOf 给出某一格的容器（覆盖层的挂载点）', async () => {
+    const stack = mount(3);
+    for (const chart of stack.charts) await chart.render();
+    const holder = stack.holderOf('price')!;
+    expect(holder.dataset.paneId).toBe('price');
+    expect(holder.style.position).toBe('relative');
+    expect(holder.contains(stack.chartOf('price')!.ice.canvasEl)).toBe(true);
+    expect(stack.holderOf('不存在')).toBeNull();
+    stack.destroy();
+  });
+
   it('resize 后高度跟着容器走', async () => {
     const stack = mount(3, 600);
     for (const chart of stack.charts) await chart.render();

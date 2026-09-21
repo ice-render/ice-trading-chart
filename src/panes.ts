@@ -71,6 +71,13 @@ export interface PaneStack {
   /** 各 pane 的图表实例，顺序与传入的 specs 一致。 */
   charts: ICEChart[];
   chartOf(id: string): ICEChart | null;
+  /**
+   * 某一格的容器元素（`position: relative`）。
+   *
+   * 给需要往某一块画布上挂覆盖层的人用：OHLC 抬头、价签、十字光标横线这些
+   * 都是应用层用 DOM 画的，挂载点就是这一格的容器 —— 有了它就不用去猜 DOM 结构。
+   */
+  holderOf(id: string): HTMLDivElement | null;
   /** 重新按容器尺寸排布（容器尺寸变化后调用）。 */
   resize(): void;
   /** 把每一格的 option 重新求值 + 重新注入对齐信息后应用（数据变化后调它）。 */
@@ -244,6 +251,10 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     chartOf: (id: string) => {
       const found = created.find((entry) => entry.spec.id === id);
       return found ? found.chart : null;
+    },
+    holderOf: (id: string) => {
+      const found = created.find((entry) => entry.spec.id === id);
+      return found ? found.holder : null;
     },
     resize,
     refresh,

@@ -198,12 +198,26 @@ layer.load(JSON.parse(saved)); // 换台机器再 load 回来
 
 ## 示例页
 
-| 页面 | 演示什么 |
+只有**一个**：`examples/terminal.html` —— 完整交易终端屏，把库的能力一次串起来。
+
+```bash
+npm run build && npx http-server . -p 8102 -c-1
+# 打开 http://localhost:8102/examples/terminal.html
+```
+
+页面里有什么：
+
+| 区域 | 用到的能力 |
 | --- | --- |
-| `examples/candlestick.html` | 最小面：K 线 + 同图成交量（第二轴压底）+ 最新价线 / 右轴价签 / OHLC 抬头 |
-| `examples/panes.html` | 真副图：价格 + 成交量 + MACD 三 pane 联动，主图叠加 MA / BOLL |
-| `examples/drawing.html` | 画线工具：水平线 / 趋势线 / 区间矩形，拖动、删除、序列化 |
-| `examples/terminal.html` | 完整终端屏：行情条 + 盘口十档 + 图表（副图 + 指标 + 画线）+ 下单面板 + 持仓 / 委托 |
+| 顶部行情条 | 最新价 / 涨跌幅 / 高低 / 量 / 资金费率结算倒计时 / 周期切换（1m~1D）/ 涨跌配色切换 |
+| 左侧盘口十档 | 页面自己的 HTML（图表库不管盘口），深度渐变、点价格填单 |
+| 中间图表 | `createPaneStack` 三块真副图（价格 / 成交量 / MACD 或 RSI）、`createOverlaySeries` 均线、`createDrawingLayer` 画线、`createOhlcReadout` 抬头、`project.ts` 投影（最新价线 / 右轴价签 / 十字光标两侧标签） |
+| 右上工具栏 | MA / BOLL 开关、MACD / RSI 切换、水平线 / 垂直线 / 趋势线 / 区间矩形 |
+| 右侧下单面板 | 限价 / 市价、全仓 / 逐仓、杠杆滑块、止盈止损、只减仓 |
+| 底部三块 | 持仓表（未实现盈亏 / 保证金 / 强平价随现价动）、委托表（可撤单）、画线记录（数据坐标 JSON） |
+
+真交互：点盘口价格填单、限价挂单、市价立即成交、现价穿过限价单自动撮合、拖杠杆重算保证金与强平价、
+滚轮缩放任一 pane 其余跟着走。
 
 ## 开发
 
