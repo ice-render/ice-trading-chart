@@ -80,6 +80,24 @@ describe('K 线（引擎集成）', () => {
     expect(content.rows.map((r) => r.value)).toEqual(['110', '118', '100', '105']);
   });
 
+  it('悬停不给蜡烛叠标记（白描边会把正在看的那根 K 盖住）', async () => {
+    // 回归：这里原本会画一圈白描边 + 淡白蒙层。用户明确要求去掉 ——
+    // 「现在读的是哪一根」由十字准星回答，再叠一层装饰只会盖住正在看的那根 K。
+    const chart = await mount(CANDLE_OPTION);
+    const comp: any = chart.seriesComponents[0];
+    const spy = jest.spyOn(comp, 'drawHoverOverlay');
+    const rect = comp.candleRects()[1];
+    const { plot } = chart.layout;
+    chart.controller.handlePointerMove(plot.x + rect.x + rect.width / 2, plot.y + rect.y + rect.height / 2);
+    await chart.render();
+
+    // 悬停确实命中了第二根（否则这条测试会假绿）
+    expect(chart.controller.hover).not.toBeNull();
+    expect(comp.hoverIndex).toBe(1);
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it('命中判定覆盖影线区间（不是只有实体）', async () => {
     const c = await mount(CANDLE_OPTION);
     // 第二根蜡烛的最高价是 118，收盘价 105：贴着最高价也应当命中

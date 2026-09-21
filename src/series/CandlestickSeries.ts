@@ -230,11 +230,11 @@ export class CandlestickSeries extends SeriesBase {
         ctx.fillRect(left, top, width, height);
       }
     }
-    // 悬停：蜡烛实体叠一层高亮描边（不改宽高 —— 改了命中区域就会和渲染分叉）
-    if (this.hoverIndex !== null) {
-      const rect = rects[this.hoverIndex];
-      if (rect) this.drawHoverOverlay(this.hoverIndex, rect, { radius: 2, fill: 'rgba(255,255,255,0.10)' });
-    }
+    // 悬停时**不**在蜡烛上叠任何标记（2026-09-21 按用户要求去掉，别再加回来）。
+    //
+    // 这里原本会画一圈白描边 + 一层淡白蒙层。问题是「现在读的是哪一根」已经由十字准星
+    // 回答得很清楚了，再叠一层标记只会**把正要看的那根 K 自己盖住**；主流看盘软件的
+    // K 线在指针划过时也不给蜡烛加边框。
     this.endDraw();
   }
 }
