@@ -189,6 +189,11 @@
       .chart-foot > span { white-space: nowrap; }
       .chart-foot b { color: var(--dim); }
       #s-hint { color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      /*
+        行情链路状态（客户端状态机的出口）。点一下模拟断线：客户端应当自己重连、
+        重放全部订阅，页面不需要知道「断过」这件事的细节。
+      */
+      #s-feed { cursor: pointer; user-select: none; }
 
       /* 图表外壳（HTML 覆盖层，几何由 syncChromeBox 对齐到主图画布） */
       .chrome { position: absolute; left: 0; top: 0; pointer-events: none; font-family: var(--mono); }
@@ -456,6 +461,7 @@
               <span><span data-i18n="foot.funding">距资金费率</span> <b id="s-next">--:--</b></span>
               <span><span data-i18n="foot.pushed">已推送</span> <b id="s-pushed">0</b></span>
               <span>fps <b id="s-fps">0</b></span>
+              <span id="s-feed" data-i18n-title="foot.feed">行情 --</span>
               <span id="s-hint">滚轮缩放任一 pane · 标尺：上下拖 / 滚轮缩放、双击自适应、右键菜单 · 键盘：←→ 平移、↑↓ 价格轴、+/- 时间轴、Home 回到最新</span>
             </div>
           </div>
@@ -676,6 +682,14 @@
             'foot.funding': '距资金费率',
             'foot.pushed': '已推送',
             'foot.fps': 'fps',
+            'foot.feed': '行情链路（点一下模拟断线）',
+            'feed.label': '行情',
+            'feed.idle': '未连接',
+            'feed.connecting': '连接中',
+            'feed.open': '已连接',
+            'feed.reconnecting': '重连中',
+            'feed.closed': '已断开',
+            'feed.resyncs': '盘口序列号跳号，已重取快照 {n} 次',
             'tool.trend': '趋势线',
             'tool.hline': '水平线',
             'tool.vline': '垂直线',
@@ -751,6 +765,14 @@
             'foot.funding': 'Funding in',
             'foot.pushed': 'Pushed',
             'foot.fps': 'fps',
+            'foot.feed': 'Market feed (click to simulate a drop)',
+            'feed.label': 'Feed',
+            'feed.idle': 'idle',
+            'feed.connecting': 'connecting',
+            'feed.open': 'live',
+            'feed.reconnecting': 'reconnecting',
+            'feed.closed': 'closed',
+            'feed.resyncs': 'order book resynced {n}×',
             'tool.trend': 'Trend line',
             'tool.hline': 'Horizontal line',
             'tool.vline': 'Vertical line',
@@ -882,6 +904,8 @@
         static BASE_PRICE = 42000;
         /** 盘口每侧的档数（组件默认也是 10）。 */
         static LEVELS = 10;
+        /** 盘口的最小变动价位（演示值：1 USDT 一档，价格 4 万上下看着才有位感）。 */
+        static BOOK_TICK = 1;
         static EQUITY = 100000;
 
         static round2(value) {
@@ -890,6 +914,12 @@
 
         static pad2(value) {
           return String(value).padStart(2, '0');
+        }
+
+        /** 时间戳 → `HH:MM:SS`（最新成交那一列的写法）。 */
+        static clock(at) {
+          const date = new Date(at);
+          return `${TerminalPage.pad2(date.getHours())}:${TerminalPage.pad2(date.getMinutes())}:${TerminalPage.pad2(date.getSeconds())}`;
         }
 
         /** 显示精度：报价一律两位小数（终端的展示口径，与数据精度无关）。 */
@@ -1029,6 +1059,25 @@
         sessionSig = '';
         /** 容器尺寸观察者（图表区高度跟容器走）。 */
         observer = null;
+        /** 当前交易对（订阅 topic 的 key 里要用）。 */
+        symbol = 'SYNUSDT';
+        /**
+         * **实时行情接入**：真实链路是「交易所 WS → `createRealtimeClient` → `createRealtimeHub`
+         * → topic store → 页面」。演示页里没有交易所，所以由页面自己扮演**网关**（`market`），
+         * 走的是同一套客户端 / 中枢（订阅、按帧合并、断线重连、快照对账全都真跑）。
+         */
+        feed = null;
+        /** 演示网关：负责「发出」报文，以及模拟断线。 */
+        market = null;
+        /** 行情连接状态（页脚上显示）。 */
+        feedState = 'idle';
+        feedDetail = null;
+        /** 深度序列号（演示网关自增；偶尔跳号用来验证 resync）。 */
+        depthSeq = 0;
+        /** 网关**当前**推给客户端的盘口梯子（移动时要按协议把离开窗口的档删掉）。 */
+        depthBook = { bids: [], asks: [] };
+        /** 盘口重取过快照几次（链路健康计数，显示在脚注那一格里）。 */
+        feedResyncs = 0;
         /** 顶部跑马灯里的合成行情（演示数据，跟主图无关）。 */
         tickers = [
           { symbol: 'BTCUSDT', price: 82532.4, pct: 2.73, digits: 1 },
@@ -1056,7 +1105,6 @@
           this.seed();
           this.mount();
           this.bind();
-          this.buildBook();
           this.paintAll();
           this.syncChrome(true);
           this.timer = setInterval(() => this.step(), TerminalPage.TICK_MS);
@@ -1665,6 +1713,8 @@
           this.futureSlots = [];
           this.zoomRightCap = null;
           this.ensureFutureSlots();
+          // 重新采样之后把这段历史当作「回补」喂回链路（真实项目里这一步是 REST 拉历史）
+          this.syncFeedHistory();
         }
 
         makeBar(at) {
@@ -1728,8 +1778,6 @@
           // 顺手先把左边补一段：否则第一次往左拖很快就贴到数据边界了
           this.ensureHistory();
           this.readout = ICETradingChart.createOhlcReadout(priceChart, { volume: {} });
-          // 首屏就把「最新成交」和顶部跑马灯铺上（否则要等第一次推送才有内容）
-          for (let i = 0; i < 12; i++) this.pushTrade();
           this.renderTrades();
           this.renderTickerStrip();
           this.drawing = ICETradingChart.createDrawingLayer(priceChart, {
@@ -1754,6 +1802,8 @@
           document.getElementById('b-levels').textContent = this.t('book.levels', { n: TerminalPage.LEVELS });
           this.renderDrawings();
           this.applyI18n();
+          // 行情放在最后接：盘口 / 成交 / 持仓三个容器都建好了，第一条推送进来就能画
+          this.mountFeed();
           window.addEventListener('resize', () => this.resize());
         }
 
@@ -1874,6 +1924,9 @@
           });
           document.getElementById('btn-reset').addEventListener('click', () => this.rebuild('已重置'));
           document.getElementById('btn-latest').addEventListener('click', () => this.resumeFollow());
+          // 脚注上的行情状态：点一下把连接掐掉，看客户端自己重连 + 重放订阅
+          const chip = document.getElementById('s-feed');
+          if (chip) chip.addEventListener('click', () => this.simulateFeedDrop());
           this.bindToolbar();
           this.bindOrderForm();
           this.bindBottomTabs();
@@ -2049,11 +2102,19 @@
 
         setIntervalKey(key) {
           if (!key || key === this.intervalKey || !this.intervalOf(key)) return;
+          const previous = this.intervalKey;
           this.intervalKey = key;
           this.setFollow(true);
           // 换了周期，类目标签整批换掉：旧的画线锚点没有对应类目了，视窗也要重置
           this.drawing.clear();
+          // 换周期 = 换一条 K 线通道：先退订旧的，重新采样之后再订阅新的
+          if (this.feed) this.feed.unsubscribe('kline', { symbol: this.symbol, interval: previous });
           this.seed();
+          // 新订阅建出新的 store；订阅报文一发出去网关就回一份当前 K 线，随后把历史 load 回去
+          if (this.feed) {
+            this.feed.subscribe('kline', { symbol: this.symbol, interval: key });
+            this.syncFeedHistory();
+          }
           this.closeMenus();
           this.renderToolbar();
           this.invalidate(true);
@@ -2397,6 +2458,455 @@
           return { price: `${text.price} (USDT)`, size: `${text.size} (SYN)`, total: `${text.total} (SYN)` };
         }
 
+        /**
+         * 接上实时行情：客户端（重连 / 心跳 / 排队）+ 中枢（订阅记账 / 按帧合并 / 多 topic 分流）。
+         *
+         * 四种 topic 都在：**K 线**（驱动主图）、**深度**（驱动盘口）、**仓位**（驱动持仓表）、
+         * **成交**（驱动「最新成交」）。前三种用库里内置的 topic 工厂，最后一种是页面**自己写**
+         * 的一个 topic —— 这正好说明「接一个新的 topic」的姿势：只要给 `{ name, keyOf,
+         * subscribe, decode, apply }`，中枢就把它和别的 topic 一视同仁（订阅记账、断线重放、
+         * 按帧合并都自动有）。
+         *
+         * 协议部分（订阅报文 / 报文解析）由页面给 —— 真实项目里换成交易所的字段名即可，
+         * 其余一行不用改。
+         */
+        mountFeed() {
+          const symbol = this.symbol;
+          this.feed = ICETradingChart.createRealtimeHub({
+            clientOptions: {
+              url: 'wss://demo-gateway.local/market',
+              createSocket: (url) => this.createMarketSocket(url),
+              heartbeat: { payload: { op: 'ping' }, intervalMs: 5000, timeoutMs: 12000 },
+              reconnect: { minDelayMs: 300, maxDelayMs: 4000, factor: 2, jitter: 0.2 },
+              onError: (error) => this.setHint(`行情出错：${String(error && error.message ? error.message : error)}`),
+            },
+            topics: [
+              ICETradingChart.createCandleTopic({
+                subscribe: (params) => ({ op: 'sub', ch: 'kline', sym: params.symbol, interval: params.interval }),
+                unsubscribe: (params) => ({ op: 'unsub', ch: 'kline', sym: params.symbol, interval: params.interval }),
+                decode: (message) =>
+                  message && message.ch === 'kline' && message.sym === symbol && message.interval === this.intervalKey
+                    ? { key: `${message.sym}:${message.interval}`, bar: message.bar, closed: message.closed === true }
+                    : null,
+              }),
+              ICETradingChart.createDepthTopic({
+                depth: TerminalPage.LEVELS,
+                subscribe: (params) => ({ op: 'sub', ch: 'depth', sym: params.symbol }),
+                decode: (message) =>
+                  message && message.ch === 'depth' && message.sym === symbol ? { key: message.sym, message: message.data } : null,
+              }),
+              ICETradingChart.createPositionTopic({
+                subscribe: (params) => ({ op: 'sub', ch: 'positions', ...(params || {}) }),
+                decode: (message) => (message && message.ch === 'positions' ? { key: 'account', positions: message.data } : null),
+              }),
+              // 页面自己写的 topic：store 就是一个「最近 30 笔」的小对象
+              {
+                name: 'trade',
+                keyOf: (params) => params.symbol,
+                subscribe: (params) => ({ op: 'sub', ch: 'trade', sym: params.symbol }),
+                unsubscribe: (params) => ({ op: 'unsub', ch: 'trade', sym: params.symbol }),
+                decode: (message) =>
+                  message && message.ch === 'trade' && message.sym === symbol ? { key: message.sym, payload: message.data } : null,
+                initial: () => ({ list: [] }),
+                apply: (store, payload) => {
+                  const next = store || { list: [] };
+                  next.list = next.list.concat([payload]).slice(-30);
+                  return { data: next, kind: 'trade' };
+                },
+              },
+            ],
+            onData: (changes) => this.onMarketData(changes),
+            onState: (state, detail) => {
+              const previous = this.feedState;
+              this.feedState = state;
+              this.feedDetail = detail;
+              this.renderFeedState();
+              // 断线重连是**用户看得见的事**（行情停过一段），回到线上时说一声
+              if (state === 'open' && previous === 'reconnecting') this.setHint('行情已重连，订阅已重放');
+            },
+          });
+          this.feed.subscribe('kline', { symbol, interval: this.intervalKey });
+          this.feed.subscribe('depth', { symbol });
+          this.feed.subscribe('positions', { account: 'demo' });
+          this.feed.subscribe('trade', { symbol });
+          // 历史这一段不走 WS（真实项目里来自 REST），直接 load 进 K 线 stream：
+          // 「历史 + 增量」才拼成完整的图，这也是 `CandleStream.load()` 存在的理由。
+          this.syncFeedHistory();
+          // 建立连接：未连上时上面的订阅会记在中枢里，连上后自动重放
+          this.feed.client.connect();
+          this.renderFeedState();
+        }
+
+        /**
+         * 合并后的行情落到页面上（**每帧一次**，由中枢保证）。
+         *
+         * ⚠️ 这里**一条报文都可能对应很多次推送**：同一条流一秒推几十上百次，中枢把它们合进
+         * store，但每帧只叫醒应用一次。所以下面的写法是「这一帧结束时的状态是什么」，
+         * 而不是「这条报文该怎么叠上去」—— 图表刷新在一帧里只做一次（实测一次 `refresh`
+         * 3.7ms@p50，每帧一次就顶到 60fps 预算了）。
+         *
+         * K 线按 x 就地改 / 接新的；深度直接拿 store 里的盘口；仓位拿 store 里的列表；
+         * 成交拿 topic 自己的小 store。
+         */
+        onMarketData(changes) {
+          let dataChanged = false;
+          let bookChanged = false;
+          let positionsChanged = false;
+          let tradesChanged = false;
+          for (const change of changes) {
+            if (change.topic === 'kline') {
+              const bar = change.payload.bar;
+              const last = this.candles[this.candles.length - 1];
+              if (!last || !bar || change.kind === 'ignored' || change.kind === 'load') continue;
+              if (change.kind === 'append') {
+                // ⚠️ 一帧里「收盘 + 起新的一根」是两条报文，但合并后只会剩最后一条（append）。
+                // 所以这里从 store 里把**最后两根**都捞出来同步 —— 否则收盘那根的收/高/低/量
+                // 会漏掉，画面上「上一根收在哪」和「下一根从哪开」就对不上。
+                for (const row of change.data.bars().slice(-2)) this.mergeCandle(row);
+                this.ensureFutureSlots();
+                dataChanged = true;
+              } else if (change.kind === 'update' || change.kind === 'close') {
+                // 同一根在变：就地改（用 x 找，乱序或换周期时找不到就当没有）
+                dataChanged = this.mergeCandle(bar) || dataChanged;
+              }
+              continue;
+            }
+            if (change.topic === 'depth') {
+              if (change.kind === 'resync') {
+                /**
+                 * 序列号跳号：按契约**重取快照**，而不是继续用一本错账。
+                 *
+                 * ⚠️ 这件事**不写 `setHint()`**：脚注那一行是共用的（手势反馈、下单结果都在上面），
+                 * 而丢包是链路自己的事，一有丢包就把用户刚看到的反馈顶掉会让人莫名其妙。
+                 * 链路状态归脚注那一格（`#s-feed`），计数 + 悬停提示都在那儿。
+                 */
+                this.feedResyncs += 1;
+                this.renderFeedState();
+                this.market.requestSnapshot();
+                continue;
+              }
+              bookChanged = true;
+              continue;
+            }
+            if (change.topic === 'positions') {
+              positionsChanged = true;
+              continue;
+            }
+            if (change.topic === 'trade') {
+              tradesChanged = true;
+              continue;
+            }
+          }
+          if (bookChanged) this.syncBookFromFeed();
+          if (positionsChanged) this.renderPosition();
+          if (tradesChanged) this.syncTradesFromFeed();
+          if (dataChanged) this.refreshChartFromFeed();
+        }
+
+        /**
+         * 一根（来自 WS 的）K 线并进页面的模型。
+         *
+         * 页面的 `this.candles` 是**展示模型**（比 WS 多带 `at` 与未来空位，还有左侧无限历史），
+         * store 是**链路模型**（协议报文原样进来，谁订阅谁收到）：两者按 x 对齐，WS 负责推
+         * 最近这一段，页面负责历史与视窗。真实项目里历史那一段来自 REST 回补（`stream.load()`）。
+         */
+        mergeCandle(bar) {
+          if (!bar || bar.x === undefined || bar.x === null) return false;
+          const at = bar.at === undefined ? this.atOfKey(bar.x) : bar.at;
+          for (let i = this.candles.length - 1; i >= 0 && i >= this.candles.length - 6; i--) {
+            if (this.candles[i].x === bar.x) {
+              this.candles[i] = { ...this.candles[i], ...bar, at: this.candles[i].at };
+              return true;
+            }
+          }
+          const last = this.candles[this.candles.length - 1];
+          // 比最后一根更旧 → 丢掉（乱序报文不能把画面往回拽）
+          if (last && String(bar.x) < String(last.x)) return false;
+          this.candles.push({ ...bar, at });
+          this.trimHistory();
+          return true;
+        }
+
+        /** 行情更新后的图表刷新：跟盘就重新钉窗口，其余保持视窗。 */
+        refreshChartFromFeed() {
+          const last = this.candles[this.candles.length - 1];
+          if (last) {
+            this.price = last.c;
+            this.high24 = Math.max(this.high24, last.h);
+            this.low24 = Math.min(this.low24, last.l);
+          }
+          this.stack.refresh({ animate: false, preserveView: true });
+          if (this.follow) this.pinToLatest();
+          this.paintAll();
+          this.syncChrome();
+        }
+
+        /** 用深度 store 渲染盘口（`bids` / `asks` 已经是排好序、裁到设定档数的）。 */
+        syncBookFromFeed() {
+          const store = this.feed ? this.feed.data(this.depthKey) : null;
+          const book = store ? store.book() : null;
+          if (!book) return;
+          this.bookData = { asks: book.asks.slice(0, TerminalPage.LEVELS), bids: book.bids.slice(0, TerminalPage.LEVELS) };
+          this.renderBook();
+        }
+
+        /** 用成交 topic 的 store 渲染「最新成交」。 */
+        syncTradesFromFeed() {
+          const store = this.feed ? this.feed.data(this.tradeKey) : null;
+          this.trades = store && store.list ? store.list.slice() : [];
+          this.renderTrades();
+        }
+
+        /**
+         * 四条流的 key。
+         *
+         * 一律走 `hub.keyOf()` 反求，**不在应用侧拼字符串** —— 订阅时用的 key 与查 store 时用的
+         * key 就是同一个来源，自定义 topic 改了 `keyOf` 口径也不会两边对不上。
+         */
+        get klineKey() {
+          return this.feed ? this.feed.keyOf('kline', { symbol: this.symbol, interval: this.intervalKey }) : '';
+        }
+
+        get depthKey() {
+          return this.feed ? this.feed.keyOf('depth', { symbol: this.symbol }) : '';
+        }
+
+        get positionsKey() {
+          return this.feed ? this.feed.keyOf('positions', { account: 'demo' }) : '';
+        }
+
+        get tradeKey() {
+          return this.feed ? this.feed.keyOf('trade', { symbol: this.symbol }) : '';
+        }
+
+        /** 页面自己的历史 → K 线 stream（真实项目里这一步是 REST 回补，走的就是 `load()`）。 */
+        syncFeedHistory() {
+          const stream = this.feed ? this.feed.data(this.klineKey) : null;
+          if (stream && stream.load) stream.load(this.candles.slice(), { replace: true });
+        }
+
+        /** 当前这一根的快照（订阅 / 重连后网关补推一条，客户端立刻回到最新状态）。 */
+        currentBar() {
+          const last = this.candles[this.candles.length - 1];
+          if (!last) return null;
+          return { at: last.at, x: last.x, o: last.o, h: last.h, l: last.l, c: last.c, v: last.v };
+        }
+
+        /** 仓位变了 → 交给网关推一条（真实场景里这是交易所推给你的账户流）。 */
+        publishPositions() {
+          if (this.market) this.market.pushPositions();
+        }
+
+        /**
+         * 网关侧的**盘口梯子**：以现价为锚、每档 1 USDT 的十档（演示用的最小变动价位）。
+         *
+         * 为什么梯子要跟着现价走：盘口是「围绕最新价的一扇窗」。真实网关在价格移动时会把
+         * 离开窗口的档**删掉**、补进新档；只 upsert 不删除的话，一张 4 万的盘口会慢慢攒下
+         * 一堆陈价，最后买一高于卖一（价差变成负数）—— 演示页早先就是这个毛病。
+         */
+        depthLadder() {
+          const tick = TerminalPage.BOOK_TICK;
+          const base = Math.round(this.price / tick) * tick;
+          const bids = [];
+          const asks = [];
+          for (let i = 1; i <= TerminalPage.LEVELS; i++) {
+            bids.push({ price: TerminalPage.round2(base - tick * i), size: TerminalPage.round2(0.2 + Math.random() * 2.4) });
+            asks.push({ price: TerminalPage.round2(base + tick * i), size: TerminalPage.round2(0.2 + Math.random() * 2.4) });
+          }
+          return { bids, asks };
+        }
+
+        /** 脚注上的行情链路状态（状态机的出口就在这一个 span 上）。 */
+        renderFeedState() {
+          const node = document.getElementById('s-feed');
+          if (!node) return;
+          const state = this.feedState || 'idle';
+          const color = state === 'open' ? this.upColor : state === 'closed' ? this.downColor : this.terminalTheme.accent;
+          const detail = this.feedDetail || {};
+          const suffix = state === 'reconnecting' && detail.attempt ? ` #${detail.attempt}` : '';
+          const resync = this.feedResyncs ? ` ⟳${this.feedResyncs}` : '';
+          node.innerHTML =
+            `<span style="color:${color}">●</span> ${this.t('feed.label')} ${this.t(`feed.${state}`)}${suffix}${resync}`;
+          const title = this.feedResyncs ? `${this.t('foot.feed')} · ${this.t('feed.resyncs', { n: this.feedResyncs })}` : this.t('foot.feed');
+          node.setAttribute('title', title);
+          node.setAttribute('aria-label', title);
+        }
+
+        /** 演示：把行情连接掐掉（真实场景是网络 / 服务端断流，客户端应当自己重连并重放订阅）。 */
+        simulateFeedDrop() {
+          if (!this.market || !this.market.socket || this.market.socket.readyState !== 1) {
+            return this.setHint('行情没连着，不用断');
+          }
+          this.market.drop();
+        }
+
+        /** 类目 key → 时间戳（新增的 K 需要它来算「下一根」）。 */
+        atOfKey(key) {
+          const text = String(key);
+          const minute = /^(\d{2})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(text);
+          if (minute) {
+            return new Date(2000 + +minute[1], +minute[2] - 1, +minute[3], +minute[4], +minute[5]).getTime();
+          }
+          const day = /^(\d{2})-(\d{2})-(\d{2})$/.exec(text);
+          if (day) return new Date(2000 + +day[1], +day[2] - 1, +day[3]).getTime();
+          const month = /^(\d{2})-(\d{2})$/.exec(text);
+          if (month) return new Date(2000 + +month[1], +month[2] - 1, 1).getTime();
+          return Date.now();
+        }
+
+        /**
+         * 页面扮演的「交易所网关」：一个 WebSocket 形状的对象，收到订阅就按节奏推数据。
+         *
+         * 它**只实现传输层**（`readyState` / `addEventListener` / `send` / `close`），
+         * 上行报文由它翻译成「该推什么」，下行一律走 `socket.push()`。客户端拿到的是真连接
+         * 一样的对象，所以重连 / 心跳 / 排队 / 订阅重放这套逻辑在演示页里是**真跑**的。
+         */
+        createMarketSocket(url) {
+          const page = this;
+          const listeners = {};
+          const socket = {
+            url,
+            readyState: 0,
+            sent: [],
+            addEventListener(type, listener) {
+              (listeners[type] = listeners[type] || new Set()).add(listener);
+            },
+            removeEventListener(type, listener) {
+              if (listeners[type]) listeners[type].delete(listener);
+            },
+            send(raw) {
+              socket.sent.push(String(raw));
+              let message = null;
+              try {
+                message = JSON.parse(String(raw));
+              } catch {
+                return;
+              }
+              if (!message || !message.op) return;
+              // 心跳：网关回一条 pong（客户端收到任何报文都会把静默看门狗重新计时）
+              if (message.op === 'ping') {
+                socket.push({ op: 'pong' });
+                return;
+              }
+              if (message.op === 'reqSnapshot') {
+                page.market.requestSnapshot();
+                return;
+              }
+              if (message.op !== 'sub') return;
+              // 订阅即回一份**当前状态**：真实网关也是这样（否则客户端要等下一次变化才知道现状）
+              if (message.ch === 'depth') page.market.requestSnapshot();
+              else if (message.ch === 'positions') page.market.pushPositions();
+              else if (message.ch === 'kline') page.market.pushCandle(page.currentBar(), false);
+              else if (message.ch === 'trade') page.market.pushRecentTrades(12);
+            },
+            close() {
+              socket.readyState = 3;
+              socket.emit('close', { code: 1000, reason: 'client-close' });
+            },
+            emit(type, event) {
+              for (const listener of Array.from(listeners[type] || [])) listener(event);
+            },
+            // 网关侧：把一条报文推给客户端
+            push(message) {
+              if (socket.readyState !== 1) return;
+              socket.emit('message', { data: JSON.stringify(message) });
+            },
+          };
+          // 真实连接是异步打开的
+          setTimeout(() => {
+            if (socket.readyState === 3) return;
+            socket.readyState = 1;
+            socket.emit('open', {});
+          }, 30);
+          page.market = {
+            socket,
+            /** 模拟断线（把连接掐掉，客户端应当自己重连并重订阅）。 */
+            drop() {
+              socket.readyState = 3;
+              socket.emit('close', { code: 1006, reason: 'simulated-drop' });
+              page.setHint('行情断线：等待自动重连');
+            },
+            /** 推一条深度快照（订阅时 / resync 后 / 重连后都会要）。 */
+            requestSnapshot() {
+              page.depthSeq += 1;
+              const ladder = page.depthLadder();
+              page.depthBook = { bids: ladder.bids.map((level) => level.price), asks: ladder.asks.map((level) => level.price) };
+              socket.push({
+                ch: 'depth',
+                sym: page.symbol,
+                data: { type: 'snapshot', seq: page.depthSeq, bids: ladder.bids, asks: ladder.asks },
+              });
+            },
+            /**
+             * 推一串深度增量（每 tick 一次；偶尔跳号）。
+             *
+             * 增量包含两件事：**新梯子的档位**（upsert）与**离开窗口的档位**（size 0 删除）。
+             * 只 upsert 不删除，盘口会攒陈价、最后买一高于卖一。跳号那次让 `prevSeq` 对不上
+             * store 手里的序列号 —— 应用会收到 `resync` 并按契约**重取快照**，而不是拿着一个
+             * 悄悄错下去的盘口接着画。
+             */
+            pushDepth() {
+              const ladder = page.depthLadder();
+              const bidPrices = ladder.bids.map((level) => level.price);
+              const askPrices = ladder.asks.map((level) => level.price);
+              const leave = (previous, current) =>
+                previous.filter((price) => current.indexOf(price) < 0).map((price) => ({ price, size: 0 }));
+              const bids = ladder.bids.concat(leave(page.depthBook.bids, bidPrices));
+              const asks = ladder.asks.concat(leave(page.depthBook.asks, askPrices));
+              page.depthBook = { bids: bidPrices, asks: askPrices };
+              // 偶尔「丢一个序列号」（3% ≈ 半分钟一次）：演示 resync 之后应用会重取快照
+              const skip = Math.random() < 0.03;
+              const prev = page.depthSeq;
+              page.depthSeq = prev + (skip ? 2 : 1);
+              socket.push({
+                ch: 'depth',
+                sym: page.symbol,
+                data: { type: 'diff', seq: page.depthSeq, prevSeq: skip ? prev + 1 : prev, bids, asks },
+              });
+            },
+            /** 推 K 线（同一根反复推 / 收盘；由页面自己的模型决定内容）。 */
+            pushCandle(bar, closed) {
+              if (!bar) return;
+              socket.push({ ch: 'kline', sym: page.symbol, interval: page.intervalKey, bar, closed: closed === true });
+            },
+            /** 推一笔成交（「最新成交」走的是**页面自己写的那条 topic**）。 */
+            pushTrade(trade) {
+              socket.push({ ch: 'trade', sym: page.symbol, data: trade });
+            },
+            /** 订阅成交流时回补最近几笔（网关的「最近成交」快照）。 */
+            pushRecentTrades(count) {
+              const now = Date.now();
+              for (let i = count - 1; i >= 0; i -= 1) {
+                page.market.pushTrade({
+                  price: TerminalPage.round2(page.price * (1 + (Math.random() - 0.5) * 0.0004)),
+                  size: TerminalPage.round2(0.002 + Math.random() * 0.6),
+                  at: TerminalPage.clock(now - i * 1000),
+                  up: Math.random() > 0.5,
+                });
+              }
+            },
+            /** 推仓位（演示：网关读页面本地的「交易所侧」状态；真实场景由交易所推给你）。 */
+            pushPositions() {
+              const position = page.position;
+              socket.push({
+                ch: 'positions',
+                data: position
+                  ? [
+                      {
+                        symbol: page.symbol,
+                        side: position.side,
+                        size: TerminalPage.round2(position.size),
+                        entryPrice: TerminalPage.round2(position.entry),
+                        leverage: position.leverage,
+                      },
+                    ]
+                  : [],
+              });
+            },
+          };
+          return socket;
+        }
+
         /** 页面自己文案的取词（缺失时退回中文，再退回 key）。 */
         t(key, params) {
           const table = TerminalPage.PAGE_MESSAGES[this.lang] || TerminalPage.PAGE_MESSAGES.zh;
@@ -2432,6 +2942,7 @@
           }
           this.renderToolbar();
           this.syncDrawBar();
+          this.renderFeedState();
         }
 
         /**
@@ -3077,59 +3588,47 @@
         }
 
         step() {
-          if (!this.running) return;
+          if (!this.running || !this.market) return;
           const interval = this.interval;
           const last = this.candles[this.candles.length - 1];
           const next = this.price + (Math.random() - 0.5) * this.price * 0.0016;
           this.price = next;
-          last.c = TerminalPage.round2(next);
-          last.h = TerminalPage.round2(Math.max(last.h, next));
-          last.l = TerminalPage.round2(Math.min(last.l, next));
           const addVolume = Math.round(20 + Math.random() * 120);
-          last.v += addVolume;
           this.volume24 += addVolume;
-          this.high24 = Math.max(this.high24, next);
-          this.low24 = Math.min(this.low24, next);
           this.pushed += 1;
           this.ticksInBar += 1;
+          /**
+           * ⚠️ 这一笔**不再直接改 `this.candles`**（旧版是自己改数据 + 自己刷新）。
+           *
+           * 页面在这里扮演**行情源**：把「这一笔之后这一根长什么样」推给网关，之后就交给
+           * `WS → createRealtimeClient → createRealtimeHub → CandleStream → onData` 那条链路
+           * —— 同一根反复推（值在变）就走 update，攒够阈值就收盘 + 起新的一根。页面的模型
+           * 在 `onMarketData` 里跟着走，图表刷新也由那条链路按帧合并。
+           */
+          const bar = {
+            at: last.at,
+            x: last.x,
+            o: last.o,
+            h: TerminalPage.round2(Math.max(last.h, next)),
+            l: TerminalPage.round2(Math.min(last.l, next)),
+            c: TerminalPage.round2(next),
+            v: last.v + addVolume,
+          };
+          this.market.pushCandle(bar, false);
           if (this.ticksInBar >= TerminalPage.TICKS_PER_BAR) {
             this.ticksInBar = 0;
-            this.candles.push(this.makeBar(last.at + interval.ms));
-            this.trimHistory();
-            this.ensureFutureSlots();
+            this.market.pushCandle(this.makeBar(last.at + interval.ms), false);
           }
+          this.market.pushDepth();
+          this.market.pushTrade({
+            price: TerminalPage.round2(next),
+            size: TerminalPage.round2(0.002 + Math.random() * 0.6),
+            at: TerminalPage.clock(Date.now()),
+            up: Math.random() > 0.5,
+          });
           this.matchOrders();
-          // 最新成交 + 顶部跑马灯（演示：每次推送记一笔，别的品种自己走）
-          this.pushTrade();
-          this.renderTrades();
+          // 顶部跑马灯是另一批品种的合成行情，跟主图的链路无关，仍在这里自己走
           this.stepTickers();
-          // 跟盘时把窗口重新钉到最后 count 根；用户自己动过视窗（follow=false）就原样保留
-          this.stack.refresh({ animate: false, preserveView: true });
-          if (this.follow) this.pinToLatest();
-          this.buildBook();
-          this.paintAll();
-          this.syncChrome();
-        }
-
-        /** 盘口：围绕现价造十档，深度按档位衰减（伪数据，但排序与量纲是真的）。 */
-        buildBook() {
-          // 最小变动价位：给一个**真实感**的步长。用价格的千分比当步长会算出十几块的价差，
-          // 盘口看着就不像盘口了。
-          const tick = 0.1;
-          const asks = [];
-          const bids = [];
-          for (let i = 0; i < TerminalPage.LEVELS; i++) {
-            asks.push({
-              price: TerminalPage.round2(this.price + tick * (i + 1)),
-              size: TerminalPage.round2(0.2 + Math.random() * 2.4),
-            });
-            bids.push({
-              price: TerminalPage.round2(this.price - tick * (i + 1)),
-              size: TerminalPage.round2(0.2 + Math.random() * 2.4),
-            });
-          }
-          // 组件的契约是「最优价在前」，asks / bids 都按这个顺序直接给（不用反转）
-          this.bookData = { asks, bids };
         }
 
         renderBook() {
@@ -3183,28 +3682,37 @@
           return TerminalPage.round2(this.price * (1 + Math.sin(Date.now() / 60000) * 0.0001));
         }
 
+        /**
+         * 持仓表：数据来自**仓位 topic 的 store**（`positions:account`），不是页面本地那个撮合
+         * 对象 —— 页面下单只是「告诉网关」；账户变成什么样，是网关推回来的。
+         *
+         * 盈亏 / 保证金 / 强平价这些**展示口径**仍由页面按当前价算（真实场景里它们也随价格变，
+         * 由推送实时算反而更费）。
+         */
         renderPosition() {
           const body = document.getElementById('positions');
-          if (!this.position) {
+          const store = this.feed ? this.feed.data(this.positionsKey) : null;
+          const list = store && store.list ? store.list() : [];
+          const pos = list.length ? list[0] : null;
+          if (!pos) {
             body.innerHTML = '<tr><td class="empty" colspan="8">暂无持仓</td></tr>';
             document.getElementById('p-count').textContent = '0';
-            document.getElementById('o-avail').textContent = `可用 ${TerminalPage.price(TerminalPage.EQUITY)}`;
+            document.getElementById('o-avail').textContent = `${ICETradingChart.formatVolume(TerminalPage.EQUITY)} USDT`;
             return;
           }
-          const pos = this.position;
           const direction = pos.side === 'long' ? 1 : -1;
-          const pnl = (this.price - pos.entry) * pos.size * direction;
+          const pnl = (this.price - pos.entryPrice) * pos.size * direction;
           const margin = (this.price * pos.size) / pos.leverage;
           const liq =
             pos.side === 'long'
-              ? pos.entry * (1 - 1 / pos.leverage + 0.004)
-              : pos.entry * (1 + 1 / pos.leverage - 0.004);
+              ? pos.entryPrice * (1 - 1 / pos.leverage + 0.004)
+              : pos.entryPrice * (1 + 1 / pos.leverage - 0.004);
           const sideColor = pos.side === 'long' ? this.upColor : this.downColor;
           body.innerHTML =
             '<tr>' +
             `<td style="color:${sideColor}">${pos.side === 'long' ? '多' : '空'} ${this.marginMode === 'cross' ? '全仓' : '逐仓'}</td>` +
             `<td>${pos.size.toFixed(3)}</td>` +
-            `<td>${TerminalPage.price(pos.entry)}</td>` +
+            `<td>${TerminalPage.price(pos.entryPrice)}</td>` +
             `<td>${TerminalPage.price(this.price)}</td>` +
             `<td style="color:${pnl >= 0 ? this.upColor : this.downColor}">${ICETradingChart.formatSigned(TerminalPage.round2(pnl))}</td>` +
             `<td>${TerminalPage.price(TerminalPage.round2(margin))}</td>` +
@@ -3212,8 +3720,7 @@
             `<td>${pos.leverage}×</td>` +
             '</tr>';
           document.getElementById('p-count').textContent = '1';
-          document.getElementById('o-avail').textContent =
-            `可用 ${TerminalPage.price(TerminalPage.round2(TerminalPage.EQUITY - margin))}`;
+          document.getElementById('o-avail').textContent = `${ICETradingChart.formatVolume(TerminalPage.EQUITY - margin)} USDT`;
         }
 
         renderOrders() {
@@ -3569,9 +4076,12 @@
         /** 账户面板：保证金比率 / 维持保证金 / 保证金余额（跟着持仓与杠杆走）。 */
         renderAccount() {
           const leverage = Number(document.getElementById('o-lev').value) || 1;
-          const position = this.position;
-          const margin = position ? this.positionMargin() : 0;
-          const maintenance = position ? Math.abs(position.size * this.price) * 0.005 : 0;
+          // 持仓同样**从 store 读**（与持仓表同源）：页面不复述「账户现在是什么样」
+          const store = this.feed ? this.feed.data(this.positionsKey) : null;
+          const list = store && store.list ? store.list() : [];
+          const pos = list.length ? list[0] : null;
+          const margin = pos ? (pos.size * this.price) / (pos.leverage || 1) : 0;
+          const maintenance = pos ? Math.abs(pos.size * this.price) * 0.005 : 0;
           const ratio = TerminalPage.EQUITY > 0 ? (maintenance / TerminalPage.EQUITY) * 100 : 0;
           document.getElementById('acct-ratio').textContent = `${ratio.toFixed(2)}%`;
           document.getElementById('acct-maint').textContent = `${maintenance.toFixed(4)} USDT`;
@@ -3603,19 +4113,13 @@
           this.renderTickerStrip();
         }
 
-        /** 最新成交：每次推送记一笔（价格 / 数量 / 时间），只留最近 30 笔。 */
-        pushTrade() {
-          const now = new Date();
-          this.trades.push({
-            price: TerminalPage.round2(this.price),
-            size: TerminalPage.round2(0.002 + Math.random() * 0.6),
-            at: `${TerminalPage.pad2(now.getHours())}:${TerminalPage.pad2(now.getMinutes())}:${TerminalPage.pad2(now.getSeconds())}`,
-            up: Math.random() > 0.5,
-          });
-          if (this.trades.length > 30) this.trades.splice(0, this.trades.length - 30);
-        }
-
-        /** 渲染最新成交（最新的在最上面）。 */
+        /**
+         * 渲染最新成交（最新的在最上面）。
+         *
+         * 数据来自**页面自己写的那条 `trade` topic**（`syncTradesFromFeed()` 每帧同步一次），
+         * 页面不再自己攒：接一条新的行情流 = 加一个 topic，其余机制（订阅 / 重连重放 /
+         * 按帧合并）全是白拿的。
+         */
         renderTrades() {
           const body = document.getElementById('trades');
           if (!body) return;
@@ -3669,16 +4173,19 @@
             this.position.size -= closeSize;
             if (this.position.size <= 0.0001) this.position = null;
             this.setHint(`平仓 ${closeSize.toFixed(3)}，实现盈亏 ${ICETradingChart.formatSigned(TerminalPage.round2(realized))}`);
+            this.publishPositions();
             return;
           }
           if (!this.position) {
             this.position = { side, size, entry: price, leverage };
+            this.publishPositions();
             return;
           }
           const total = this.position.size + size;
           this.position.entry = (this.position.entry * this.position.size + price * size) / total;
           this.position.size = total;
           this.position.leverage = leverage;
+          this.publishPositions();
         }
 
         placeOrder(side) {

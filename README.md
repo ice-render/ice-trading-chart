@@ -181,6 +181,69 @@ book.setPalette({ upColor, downColor });                              // 换配�
 - 自带样式（注入一次、id 守卫），页面不用为它写 CSS；
 - 中间价那一行给中间价与价差；`midColor` 由调用方给（组件不知道该跟谁比）。
 
+## 实时行情（WebSocket）
+
+行情是**一条会断的长连接 + 好几路 topic**。这一层把「重连、订阅记账、按帧合并、快照对账」
+一次做完，应用只给**协议**（订阅报文 / 报文解析）和**画法**：
+
+```ts
+import { createRealtimeHub, createCandleTopic, createDepthTopic, createPositionTopic } from 'ice-trading-chart';
+
+const hub = createRealtimeHub({
+  clientOptions: {
+    url: 'wss://example.com/ws',
+    heartbeat: { payload: { op: 'ping' }, intervalMs: 15000 },   // 静默超时默认 intervalMs × 2.5
+    reconnect: { minDelayMs: 500, maxDelayMs: 15000, factor: 1.8, jitter: 0.2 },
+  },
+  topics: [
+    createCandleTopic({
+      subscribe: (p) => ({ op: 'sub', ch: `kline.${p.interval}`, sym: p.symbol }),
+      decode: (m) => (m.ch === 'kline' ? { key: `${m.sym}:${m.interval}`, bar: m.bar, closed: m.closed } : null),
+    }),
+    createDepthTopic({
+      subscribe: (p) => ({ op: 'sub', ch: 'depth', sym: p.symbol }),
+      decode: (m) => (m.ch === 'depth' ? { key: m.sym, message: m.data } : null),   // 快照 / 增量都走它
+    }),
+    createPositionTopic({
+      subscribe: () => ({ op: 'sub', ch: 'positions' }),
+      decode: (m) => (m.ch === 'positions' ? { key: 'account', positions: m.data } : null),
+    }),
+  ],
+  onData: (changes) => {
+    for (const change of changes) {
+      // 一帧一次，直接拿「这一帧结束时的状态」，不必自己攒增量
+      if (change.topic === 'kline') chart.refresh(change.data.bars());
+      if (change.topic === 'depth' && change.kind === 'resync') refetchSnapshot();   // 跳号 → 重取快照
+      if (change.topic === 'positions') renderPositions(change.data.list());
+    }
+  },
+});
+
+hub.subscribe('kline', { symbol: 'BTCUSDT', interval: '1m' });
+hub.subscribe('depth', { symbol: 'BTCUSDT' });
+hub.subscribe('positions', { account: 'main' });
+hub.client.connect();
+
+hub.data(hub.keyOf('kline', { symbol: 'BTCUSDT', interval: '1m' })!);   // → CandleStream
+```
+
+它替应用兜住的四件事：
+
+- **断线重连**：指数退避 + 抖动；`online` 立刻重连、`offline` 期间不空转；`maxAttempts` 到顶就 `closed`
+  并给出原因。传输实现可注入（`createSocket`）—— Node 端换成 `ws`、单测里换成假 socket 都行。
+- **重连即重放订阅**：订阅关系记在中枢里，每次连上自动重发，应用一行都不用写。
+- **按帧合并**：同一条流一秒推几十上百次，中枢**每帧只叫醒应用一次**（`flush: 'frame'`，也可给毫秒数）。
+  ⚠️ 代价是一帧内同一条 key 只有**最后一次**变更会送达：K 线的「收盘 + 起新的一根」会合并成一条
+  `append`，要从 `change.data.bars()` 里取最后两根来对齐（只按 `payload.bar` 改会丢掉收盘那根的值）。
+- **快照对账**：深度增量带 `seq` / `prevSeq`，**跳号就报 `resync`**，应用据此重取快照 ——
+  而不是拿一本错账接着画。写盘口时记住：**只 upsert 不删除会穿价**（陈价攒下来，买一最后高于卖一）。
+
+另外两个小方便：`hub.keyOf(topic, params)` 直接给出 store 的 key（应用不必自己拼字符串）；
+订阅没注册的 topic 名会报错，而不是静默失败。
+
+> 想接自己的流（成交明细、资金费率、标记价…）：写一个 `{ name, keyOf, subscribe, decode, apply }`
+> 塞进 `topics` 即可 —— 订阅记账、重连重放、按帧合并全是白拿的。示例页的「最新成交」就是这么接的。
+
 ## 公开 API
 
 | 导出 | 用途 |
@@ -204,6 +267,12 @@ book.setPalette({ upColor, downColor });                              // 换配�
 | `sma` / `ema` / `stdev` / `bollinger` / `macd` / `rsi` / `macdRange` | 指标纯函数 |
 | `createDrawingLayer(chart, options)` | 画线图层（SVG 覆盖层，数据坐标持久化） |
 | `createOrderBook(container, options)` | 盘口组件（买卖十档，自带样式与深度条）；`theme` / `setTheme()` 吃终端主题 |
+| `createRealtimeClient(options)` | 一条 WS 连接的生命周期：退避重连 + 抖动、心跳 + 静默看门狗、断线排队、`online` / `offline` 联动；传输可注入（`createSocket`） |
+| `createRealtimeHub(options)` | 多 topic 中枢：订阅记账（**重连自动重放**）、报文分流、**按帧合并**通知（`flush: 'frame'`）；`subscribe` / `unsubscribe` / `keyOf` / `data` / `keys` / `client` |
+| `createCandleTopic` / `createDepthTopic` / `createPositionTopic` | 内置 topic 工厂：应用只给 `subscribe` / `decode`（+ 可选 `unsubscribe` / `limit` / `depth`）。想接别的流就自己写一个 `{ name, keyOf, subscribe, decode, apply }` |
+| `createCandleStream(options?)` | K 线流：同一根反复推 = 就地改，换 x = 接新的，更旧的丢弃；`load(bars, { replace })` 用于历史 / 重连回补 |
+| `createDepthStore({ depth? })` | 深度存储：快照 + 增量、`prevSeq` / 连续 seq 对账、**跳号报 `resync`**、每侧按档数封顶 |
+| `createPositionStore()` | 仓位存储：按 `symbol + 方向` upsert，`size <= 0` 视为平掉 |
 | `DARK_TERMINAL_THEME` / `LIGHT_TERMINAL_THEME` / `resolveTerminalTheme()` | 终端主题预设与解析（一套 token 驱动图表 / 盘口 / 页面外壳） |
 | `terminalThemeToChartTheme(theme)` | 终端主题 → 图表主题（喂给 `createPaneStack({ theme })`，再经 ice-chart 的桥进引擎主题） |
 | `ZH_TERMINAL_MESSAGES` / `EN_TERMINAL_MESSAGES` / `resolveTerminalMessages()` | 文案目录（库渲染的文案：提示框四价、盘口表头、指标序列名） |
@@ -266,6 +335,7 @@ npm run build && npx http-server . -p 8102 -c-1
 | 右上工具栏 | 暂停 / 继续（停行情推流）、重置（重新采样） |
 | 右侧下单面板 | 限价 / 市价、全仓 / 逐仓、杠杆滑块、止盈止损、只减仓 |
 | 底部三块 | 持仓表（未实现盈亏 / 保证金 / 强平价随现价动）、委托表（可撤单）、画线记录（数据坐标 JSON） |
+| 实时行情链路 | 页面自己扮一个 **WebSocket 形状的网关**（`createMarketSocket()`），走的是库里的 `createRealtimeClient` + `createRealtimeHub`：**四条 topic**（K 线 / 深度 / 仓位 / 成交，最后一条是页面自己写的自定义 topic）。订阅 / 按帧合并 / 断线退避重连 / 重连重放订阅 / 深度序列号对账全是真跑的 —— 脚注最右那一格是链路状态（`● 行情 已连接`），**点一下它就模拟断线**，可以看客户端自己重连；盘口偶尔故意丢一个序列号，对账计数（`⟳n`）会 +1 |
 
 布局（左到右）：**图表 · 盘口 · 下单**，下方是持仓 / 委托 / 画线记录。
 

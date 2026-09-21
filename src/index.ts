@@ -6,6 +6,7 @@
  * - `./axisView`  数值轴的视图控制（标尺双击自适应 / 标尺滚轮缩放）
  * - `./theme`     终端主题（一套 token 同时驱动图表 / 盘口 / 页面外壳）
  * - `./messages`  文案目录 + 数字格式化（i18n 的接入点）
+ * - `./realtime`  实时行情接入（WS 客户端 + 多 topic 中枢 + K 线 / 深度 / 仓位 store）
  * - `./indicators` 技术指标（纯函数 + 叠加/副图 option）
  * - `./panes`      真副图（多实例 + 联动 + 横向对齐）
  * - `./drawing`    画线工具（SVG 覆盖层，按数据坐标持久化）
@@ -45,6 +46,41 @@ export {
   ZH_TERMINAL_MESSAGES,
 } from './messages';
 export type { TerminalMessages, TerminalNumberFormat, TerminalVolumeFormat } from './messages';
+export { createRealtimeClient } from './realtime/client';
+export type {
+  RealtimeClient,
+  RealtimeClientEvent,
+  RealtimeClientOptions,
+  RealtimeHeartbeatOptions,
+  RealtimeReconnectOptions,
+  RealtimeState,
+  WebSocketLike,
+} from './realtime/client';
+export { createCandleStream, createDepthStore, createPositionStore } from './realtime/topics';
+export type {
+  CandleStream,
+  CandleStreamEvent,
+  DepthDiffMessage,
+  DepthLevel,
+  DepthMessage,
+  DepthSnapshotMessage,
+  DepthStore,
+  DepthStoreEvent,
+  PositionDatum,
+  PositionStore,
+} from './realtime/topics';
+export { createCandleTopic, createDepthTopic, createPositionTopic, createRealtimeHub } from './realtime/hub';
+export type {
+  CandleTopicOptions,
+  CandleTopicParams,
+  DepthTopicOptions,
+  DepthTopicParams,
+  PositionTopicOptions,
+  RealtimeChange,
+  RealtimeHub,
+  RealtimeHubOptions,
+  RealtimeTopic,
+} from './realtime/hub';
 export {
   bollinger,
   closeSeries,

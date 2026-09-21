@@ -1245,4 +1245,168 @@ test.describe('K 线终端示例页', () => {
     expect(back.aligned, '放到头时三块 pane 仍要同窗').toBe(true);
     expect(back.labelRuns).toBeGreaterThan(1);
   });
+
+  /**
+   * 实时行情链路（WS 客户端 + 多 topic 中枢）。
+   *
+   * 四条用例都盯**行为**，不盯实现：
+   * ① 断线之后应用什么都不用做 —— 客户端自己退避重连、中枢自己重放全部订阅；
+   * ② 一帧里推 60 条只叫醒页面一次（这是「高频推送不打满主线程」的全部意义）；
+   * ③ 深度序列号跳号时报 `resync`，应用按契约重取快照，而不是接着画一本错账；
+   * ④ 四条流各回各家（K 线 / 深度 / 仓位 / 成交），仓位还要真的走 store 落到持仓表。
+   */
+  test('行情链路：点一下行情状态 = 断线，客户端自动重连并重放全部订阅', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__page.feedState === 'open');
+    const before = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      return { keys: pg.feed.keys().length, seq: pg.feed.data(pg.depthKey).book().seq };
+    });
+    expect(before.keys, '四条 topic 都订阅上了').toBe(4);
+
+    // 脚注那个状态点就是「模拟断线」的入口（真实场景是网络 / 服务端断流）
+    await page.click('#s-feed');
+    await page.waitForFunction(() => (window as any).__page.feedState === 'reconnecting');
+    expect(await page.textContent('#s-feed'), '状态点要如实反映重连中').toContain('重连中');
+
+    // 应用侧一行重连代码都没有：等它自己回来
+    await page.waitForFunction(() => (window as any).__page.feedState === 'open', null, { timeout: 10_000 });
+    const after = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const subs = pg.market.socket.sent
+        .map((raw: string) => JSON.parse(raw))
+        .filter((message: any) => message.op === 'sub')
+        .map((message: any) => message.ch);
+      return {
+        subs,
+        keys: pg.feed.keys().length,
+        chip: document.getElementById('s-feed')!.textContent,
+        levels: pg.feed.data(pg.depthKey).book().bids.length,
+        seq: pg.feed.data(pg.depthKey).book().seq,
+      };
+    });
+    expect(after.subs.sort(), '重连后四条订阅都重放了').toEqual(['depth', 'kline', 'positions', 'trade']);
+    expect(after.keys).toBe(4);
+    expect(after.chip).toContain('已连接');
+    expect(after.levels, '重连后盘口立刻回满十档（订阅即回快照）').toBe(10);
+
+    // 链路真的活了：深度 store 的序列号还在往前走（只有客户端收到并应用了才会动）
+    await page.waitForTimeout(1500);
+    const seqLater = await page.evaluate(() => (window as any).__page.feed.data((window as any).__page.depthKey).book().seq);
+    expect(seqLater, '重连之后增量照旧在跑').toBeGreaterThan(after.seq);
+    expect(seqLater).toBeGreaterThan(before.seq);
+  });
+
+  test('按帧合并：一帧里推 60 条 K 线，页面只被叫醒一次', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__page.feedState === 'open');
+    const result = await page.evaluate(async () => {
+      const pg = (window as any).__page;
+      pg.running = false; // 这一帧只由我们造数据，别让页面的定时器插进来
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      pg.__batches = [];
+      const original = pg.onMarketData.bind(pg);
+      pg.onMarketData = (changes: unknown[]) => {
+        pg.__batches.push(changes.length);
+        return original(changes);
+      };
+      const last = pg.candles[pg.candles.length - 1];
+      for (let i = 0; i < 60; i += 1) {
+        pg.market.pushCandle(
+          {
+            at: last.at,
+            x: last.x,
+            o: last.o,
+            h: Math.max(last.h, last.c + (i + 1) * 0.1),
+            l: Math.min(last.l, last.c - 0.1),
+            c: last.c + (i + 1) * 0.1,
+            v: last.v + i,
+          },
+          false
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const batches = pg.__batches.slice();
+      const close = pg.candles[pg.candles.length - 1].c;
+      const base = last.c;
+      pg.running = true;
+      return { batches, close, base };
+    });
+    expect(result.batches, '60 条推送合并成一次通知').toEqual([1]);
+    expect(result.close, '通知只来一次，但 store 里是最后那一条').toBeCloseTo(result.base + 6, 5);
+  });
+
+  test('深度 topic：序列号跳号 → resync → 按契约重取快照', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__page.feedState === 'open');
+    const result = await page.evaluate(async () => {
+      const pg = (window as any).__page;
+      const store = pg.feed.data(pg.depthKey);
+      const before = pg.depthSeq;
+      const resyncs = pg.feedResyncs;
+      // 网关「漏掉」一个序列号：prevSeq 与 store 手里的对不上
+      pg.depthSeq += 2;
+      pg.market.socket.push({
+        ch: 'depth',
+        sym: pg.symbol,
+        data: { type: 'diff', seq: pg.depthSeq, prevSeq: pg.depthSeq - 1, bids: [], asks: [] },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const book = store.book();
+      return {
+        before,
+        resyncs,
+        chip: document.getElementById('s-feed')!.textContent,
+        chipTitle: document.getElementById('s-feed')!.getAttribute('title'),
+        after: pg.depthSeq,
+        seq: book.seq,
+        hint: document.getElementById('s-hint')!.textContent,
+        levels: book.bids.length,
+        bid: book.bids[0].price,
+        ask: book.asks[0].price,
+      };
+    });
+    expect(result.chipTitle, '跳号要留下来路，别悄悄错下去').toContain('跳号');
+    const resyncCount = Number(/⟳(\d+)/.exec(result.chip)?.[1] || '0');
+    expect(resyncCount, '链路健康计数 +1，显示在行情那一格').toBeGreaterThanOrEqual(result.resyncs + 1);
+    expect(result.after, '应用重取了快照（网关又发了一条）').toBeGreaterThan(result.before + 2);
+    expect(result.seq, 'store 认下了新快照').toBeGreaterThan(result.before + 2);
+    expect(result.levels, '重取后仍是完整十档').toBe(10);
+    expect(result.bid, '买一必须低于卖一（只 upsert 不删除就会穿价）').toBeLessThan(result.ask);
+    // 链路自己的事不抢脚注那一行（那儿是手势 / 下单反馈的位置）
+    expect(result.hint, '内部链路事件不写 setHint').not.toContain('跳号');
+  });
+
+  test('多 topic 分流：四条流各回各家，仓位从 store 落到持仓表', async ({ page }) => {
+    await page.waitForFunction(() => (window as any).__page.feedState === 'open');
+    await page.waitForTimeout(300);
+    const before = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      return {
+        keys: pg.feed.keys().slice().sort(),
+        bids: pg.bookData.bids.length,
+        asks: pg.bookData.asks.length,
+        trades: pg.feed.data(pg.tradeKey).list.length,
+        positions: pg.feed.data(pg.positionsKey).list().length,
+        rows: document.querySelectorAll('#positions tr').length,
+      };
+    });
+    expect(before.keys).toEqual(['depth:SYNUSDT', 'kline:SYNUSDT:5m', 'positions:account', 'trade:SYNUSDT']);
+    expect([before.bids, before.asks], '盘口来自深度 store').toEqual([10, 10]);
+    expect(before.trades, '成交来自页面自己写的那条 topic').toBeGreaterThan(0);
+    expect(before.positions).toBe(0);
+    expect(before.rows, '没有仓位时只有那条「暂无持仓」').toBe(1);
+
+    // 开一笔仓：页面只是「告诉网关」，账户是什么样由仓位 topic 推回来
+    await page.evaluate(() => {
+      const pg = (window as any).__page;
+      pg.applyFill('long', pg.price, 2, 10);
+      pg.paintAll();
+    });
+    const after = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      return { store: pg.feed.data(pg.positionsKey).list(), row: document.querySelector('#positions tr')!.textContent };
+    });
+    expect(after.store).toHaveLength(1);
+    expect(after.store[0].side).toBe('long');
+    expect(after.store[0].entryPrice).toBeGreaterThan(0);
+    expect(after.row, '持仓表画的是 store 里的那一笔').toContain('多');
+  });
 });

@@ -6,6 +6,31 @@
 
 ### 新增
 
+- **实时行情接入层（WebSocket）**：行情是「一条会断的长连接 + 好几路 topic」，这一层把重连、
+  订阅记账、按帧合并、快照对账一次做完，应用只给协议与画法。三个文件各管一件事：
+  - **`createRealtimeClient(options)`**（`src/realtime/client.ts`）：一条连接的生命周期 ——
+    指数退避 + 抖动重连（`minDelayMs` / `maxDelayMs` / `factor` / `jitter` / `maxAttempts`）、
+    心跳 + **静默看门狗**（`heartbeat.timeoutMs` 默认 `intervalMs × 2.5`，TCP 半开靠它救）、
+    断线期间**排队**（`queueLimit`，满了丢最旧）、`online` 立刻重连 / `offline` 不空转、
+    状态与事件（`state` / `open` / `message` / `error` / `close`）、传输可注入（`createSocket`）。
+  - **topic store**（`src/realtime/topics.ts`）：`createCandleStream`（同一根反复推 = 就地改、
+    换 x = 接新的、更旧的丢弃、`load()` 按 x 去重合并）、`createDepthStore`（快照 + 增量、
+    `prevSeq` / 连续 seq 对账、**跳号报 `resync`**、每侧按档数封顶）、`createPositionStore`
+    （`symbol + 方向` upsert、`size <= 0` 摘掉）。
+  - **`createRealtimeHub(options)`**（`src/realtime/hub.ts`）：**订阅记账**（连上就自动重放全部订阅）、
+    多 topic 报文分流（不是订阅过的 key 直接丢）、**按帧合并**通知（`flush: 'frame'` 或毫秒数；
+    同一条 key 一帧内只报最后一次 —— 通知的是「状态」不是「增量」）、
+    内置 `createCandleTopic` / `createDepthTopic` / `createPositionTopic` 三个工厂，
+    也支持应用自己写 `{ name, keyOf, subscribe, decode, apply }`；
+    新增 `keyOf(topic, params)` 让应用不必自己拼 store 的 key，订阅未注册的 topic 名会报错。
+  - **示例页**：页面自己扮一个 WebSocket 形状的**网关**（`createMarketSocket()`），四种 topic 全接
+    （K 线 / 深度 / 仓位 / 成交，最后一条是页面自己写的自定义 topic），盘口改走「快照 + 增量 + 删除」，
+    持仓表与账户面板改读 store；脚注最右一格是链路状态（`● 行情 已连接`），**点一下模拟断线**
+    可以看客户端自己退避重连并重放订阅。
+  回归网：`tests/realtime-client.test.ts`（8 条）、`tests/realtime-topics.test.ts`（8 条）、
+  `tests/realtime-hub.test.ts`（6 条）+ e2e 四条（重连重放 / 按帧合并 60 推只叫醒一次 /
+  深度跳号重取快照 / 四条流各回各家）。
+
 - **i18n 接入点**（外部使用方确认「能不能方便地接进去」暴露出的缺口）：
   - **文案目录** `TerminalMessages`（`src/messages.ts`）：库自己渲染的每一句话都在这里 ——
     提示框四价、盘口表头三列、指标序列名（MA/EMA/BOLL/MACD/DIF/DEA/RSI）。预设
@@ -193,6 +218,18 @@
   （实测缩到底：3565 根里 2400 根是空位）。现在给右端一条闸门：`cap = max(本轮右端, 最新一根)`，
   超了整窗左移（跨度不变）—— 缩小时看到的是**更多历史**，最新那根始终贴在最右边。
   闸门只拦「比之前更靠右」，所以用户自己拖进空位看未来时不会被拽回去（`pan:change` 刷新 cap）。
+
+### 修复
+
+- **示例页的盘口会「穿价」**：伪实时盘口只 upsert 不删除，几十秒后一张 4 万的盘口里攒满了陈价，
+  买一高于卖一、价差变成负数。现在深度走「快照 + 增量 + **删除**」：以现价为锚滚动十档，
+  离开窗口的档按协议用 `size: 0` 删掉（买卖两侧各删各的 —— 一个价位从买盘迁到卖盘时旧的那侧要先删）。
+- **示例页 `renderAccount()` 调用了一个不存在的方法**（`this.positionMargin()`）：只要有持仓，
+  每 500ms 就抛一次错。现在账户面板与持仓表同源，都从仓位 topic 的 store 读；顺带把
+  `#o-avail` 被写两遍、还重复带上「可用」前缀的问题一起收掉（标签在 HTML 里，`<b>` 里只放数字）。
+- **链路自身的提示不再抢脚注那一行**：深度对账（`resync`）原先写 `setHint()`，于是随机丢包会把用户
+  刚看到的手势 / 下单反馈顶掉（e2e「底部时间轴上双击」就是这么红的）。现在链路健康归脚注最右那一格
+  `#s-feed`（状态 + 重连次数 + 对账计数 + 悬停提示）。
 
 ### 新增
 
