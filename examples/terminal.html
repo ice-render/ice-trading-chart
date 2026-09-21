@@ -143,6 +143,21 @@
       .ohlc .kv { color: var(--muted); }
       .ohlc .kv b { font-weight: 500; color: var(--dim); }
       /*
+        副图 / 成交量那一行的「图例」（主流看盘软件每块 pane 左上角都有一行）：
+        指标名 + 参数 + 当前值，值的颜色跟涨跌走。
+      */
+      .pane-title { display: flex; gap: 9px; font-size: 11px; white-space: nowrap; color: var(--muted); }
+      .pane-title .name { color: var(--dim); font-weight: 600; }
+      .pane-title .arg { color: var(--muted); }
+      .pane-title .val { color: var(--dim); }
+      .pane-title .up { color: var(--up); }
+      .pane-title .down { color: var(--down); }
+      /* 主图的水印：大号淡字，压在 K 线下面（主流看盘软件的样子） */
+      .watermark {
+        transform: translate(-50%, -50%); font-size: 46px; font-weight: 600; letter-spacing: 3px;
+        color: rgba(223, 231, 239, 0.05); white-space: nowrap; pointer-events: none;
+      }
+      /*
         十字准星的两条线都由页面画（自由跟随指针），见 TerminalPage.RULER_COLOR。
         两条线用同一种虚线边框，节奏天然一致 —— 之前竖线是 canvas 的 setLineDash([3,3])、
         横线是 CSS 边框，两者的虚线节奏其实不一样。
@@ -228,7 +243,7 @@
           <span>下一根 <b id="s-next">-</b></span>
           <span>已推送 <b id="s-pushed">0</b></span>
           <span>fps <b id="s-fps">0</b></span>
-          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走 · 标尺：上下拖 / 滚轮缩放、双击自适应 · 时间轴双击回到最新</span>
+          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane · 标尺：上下拖 / 滚轮缩放、双击自适应 · 时间轴双击回到最新 · 键盘：←→ 平移、↑↓ 价格轴、+/- 时间轴、Home 回到最新</span>
         </div>
       </div>
 
@@ -414,6 +429,14 @@
         static INTERACTION = {
           hover: { mark: false },
           /**
+           * 关掉**引擎的**键盘导航（←/→ 在数据点之间挪活动点、↑/↓ 换系列）。
+           *
+           * 那套语义不属于看盘：主流看盘软件里方向键是**平移 / 缩放视图**（←/→ 平移时间轴、
+           * ↑/↓ 缩放数值轴），而且它会把悬停（准星 + 读数）挪到数据点上，跟「准星跟指针」冲突。
+           * 页面自己接管这些键，见 `bindKeyboard`。
+           */
+          keyboard: false,
+          /**
            * 拖动平移。横向是时间轴；**纵向也开** —— 用户要求横纵都能拖。
            *
            * 纵向拖过之后引擎会把那个 y 窗口记在 `viewState.y` 里，页面按可见窗口重算的
@@ -439,6 +462,9 @@
         static AXIS_CHARS = 9;
         /** 报价小数位（价格轴刻度与提示框都用它，和页面自己的价签口径一致）。 */
         static PRICE_PRECISION = 2;
+        /** 副图两条线的颜色（与 `createMacdPaneOption` 里给的一致，图例里要用同样的颜色）。 */
+        static DIF_COLOR = '#f5a524';
+        static DEA_COLOR = '#3b82f6';
         static BASE_PRICE = 42000;
         /** 盘口每侧的档数（组件默认也是 10）。 */
         static LEVELS = 10;
@@ -544,6 +570,9 @@
         follow = true;
         /** 覆盖层原点相对 `#panes` 的偏移（`#panes` 有内边距，必须显式对齐）。 */
         chromeOrigin = { x: 0, y: 0 };
+        /** 副图图例的指标值（按「数据 + 周期 + 副图类型」缓存，指针移动时不必重算 O(n)）。 */
+        paneKey = '';
+        paneValue = null;
         /** 主图画布的 CSS 尺寸。 */
         canvasBox = { width: 0, height: 0 };
         /** 每块 pane 相对**主图画布顶部**的偏移与高度（指针落在哪一块 + 横线画在哪一行）。 */
@@ -628,6 +657,25 @@
           const data = [];
           for (const slot of this.poolSlice(real, to)) data.push({ x: slot.x, value: null });
           return data.length ? [{ id: 'k__blank', type: 'bar', data }] : [];
+        }
+
+        /**
+         * 副图当前的指标值（图例那一行要用）。
+         *
+         * 按「数据长度 + 周期 + 副图类型」缓存：指针在图上移动时 `renderReadout` 会按签名跑很多次，
+         * 每次都重算一遍 O(n) 的 EMA 没必要（`createMacdPaneOption` 已经算过一份，但那是 option 侧、拿不到）。
+         */
+        get paneIndicator() {
+          const source = this.indicatorSource;
+          const key = `${source.data.length}|${this.intervalKey}|${this.paneKind}`;
+          if (this.paneKey === key && this.paneValue) return this.paneValue;
+          this.paneKey = key;
+          const closes = ICETradingChart.closeSeries(source);
+          this.paneValue =
+            this.paneKind === 'rsi'
+              ? { kind: 'rsi', rsi: ICETradingChart.rsi(closes, 14) }
+              : { kind: 'macd', ...ICETradingChart.macd(closes, 12, 26, 9) };
+          return this.paneValue;
         }
 
         /** 主图叠加（在渲染窗口的真实 K 上算）。 */
@@ -1129,7 +1177,8 @@
           layer.className = 'chrome';
           layer.innerHTML =
             '<div class="ohlc">' +
-            '<span class="sym">价格</span>' +
+            '<span class="sym">SYN/USDT</span>' +
+            '<span class="kv" data-k="interval">5m</span>' +
             '<span class="kv">开 <b data-k="open">-</b></span>' +
             '<span class="kv">高 <b data-k="high">-</b></span>' +
             '<span class="kv">低 <b data-k="low">-</b></span>' +
@@ -1138,6 +1187,9 @@
             '<span class="kv" data-k="chg">-</span>' +
             '<span class="kv" data-k="time">-</span>' +
             '</div>' +
+            '<div class="pane-title" data-pane="volume"></div>' +
+            '<div class="pane-title" data-pane="indicator"></div>' +
+            '<div class="watermark">SYN/USDT</div>' +
             '<div class="hline"></div>' +
             '<div class="vline"></div>' +
             '<div class="lastline"></div>' +
@@ -1153,6 +1205,9 @@
             layer,
             fields,
             ohlc: layer.querySelector('.ohlc'),
+            volumeTitle: layer.querySelector('.pane-title[data-pane="volume"]'),
+            indicatorTitle: layer.querySelector('.pane-title[data-pane="indicator"]'),
+            watermark: layer.querySelector('.watermark'),
             hline: layer.querySelector('.hline'),
             vline: layer.querySelector('.vline'),
             lastline: layer.querySelector('.lastline'),
@@ -1191,6 +1246,31 @@
             const rect = chart.ice.canvasEl.getBoundingClientRect();
             this.paneGeom[id] = { top: rect.top - canvasRect.top, height: rect.height };
           }
+          this.placeTitles();
+        }
+
+        /** 三块 pane 左上角的图例行 + 主图水印的位置（几何一变就跟着走，文本在 renderReadout 里写）。 */
+        placeTitles() {
+          if (!this.chrome || !this.stack) return;
+          const pricePlot = ICETradingChart.plotRect(this.stack.chartOf('price'));
+          if (pricePlot && this.chrome.watermark) {
+            this.chrome.watermark.style.left = `${pricePlot.x + pricePlot.width / 2}px`;
+            this.chrome.watermark.style.top = `${pricePlot.y + pricePlot.height / 2}px`;
+          }
+          for (const id of ['volume', 'indicator']) {
+            const node = id === 'volume' ? this.chrome.volumeTitle : this.chrome.indicatorTitle;
+            if (!node) continue;
+            const chart = this.stack.chartOf(id);
+            const geom = this.paneGeom[id];
+            const plot = chart ? ICETradingChart.plotRect(chart) : null;
+            if (!geom || !plot) {
+              node.style.display = 'none';
+              continue;
+            }
+            node.style.display = 'flex';
+            node.style.left = `${plot.x + 8}px`;
+            node.style.top = `${geom.top + plot.y + 3}px`;
+          }
         }
 
         bind() {
@@ -1204,6 +1284,7 @@
           this.bindOrderForm();
           this.bindPointer();
           this.bindAxisGestures();
+          this.bindKeyboard();
           this.bindViewSync();
         }
 
@@ -1576,6 +1657,43 @@
           // 松手可能发生在图外（甚至窗口外），挂在 window 上才不会漏
           window.addEventListener('pointerup', finish);
           window.addEventListener('pointercancel', finish);
+        }
+
+        /**
+         * 键盘（主流看盘软件的口径）：←/→ 平移时间轴、↑/↓ 缩放数值轴、`+`/`-` 缩放时间轴、
+         * `Home` 回到最新。都在**主图**上执行 —— 三块 pane 的 x 窗口是联动的，主图动了其余跟着动。
+         *
+         * 两条纪律：
+         * - **表单里不抢键**：光标在输入框里时方向键/加减号是人家的（自定义周期、下单面板）；
+         * - 视图动作一律走公开的 `panTimeAxis` / `zoomTimeAxis` / `zoomValueAxis`，
+         *   于是跟鼠标手势共用同一套引擎夹取（minBarSpacing / minSpan），并且照常抛
+         *   `pan:change` / `zoom:change`，页面的「跟盘 → 手动」那条链不用另写一份。
+         */
+        bindKeyboard() {
+          document.addEventListener('keydown', (event) => {
+            if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+            const tag = event.target && event.target.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            const chart = this.stack ? this.stack.chartOf('price') : null;
+            if (!chart) return;
+            const key = event.key;
+            let handled = false;
+            if (key === 'ArrowLeft' || key === 'ArrowRight') {
+              const step = Math.max(1, Math.round(this.visibleCount() * 0.1));
+              handled = ICETradingChart.panTimeAxis(chart, { bars: key === 'ArrowRight' ? step : -step });
+            } else if (key === 'ArrowUp' || key === 'ArrowDown') {
+              const factor = key === 'ArrowUp' ? TerminalPage.ZOOM_FACTOR : 1 / TerminalPage.ZOOM_FACTOR;
+              handled = ICETradingChart.zoomValueAxis(chart, { factor });
+            } else if (key === '+' || key === '=') {
+              handled = ICETradingChart.zoomTimeAxis(chart, { factor: TerminalPage.ZOOM_FACTOR });
+            } else if (key === '-' || key === '_') {
+              handled = ICETradingChart.zoomTimeAxis(chart, { factor: 1 / TerminalPage.ZOOM_FACTOR });
+            } else if (key === 'Home') {
+              this.resumeFollow('已回到最新');
+              handled = true;
+            }
+            if (handled) event.preventDefault();
+          });
         }
 
         /**
@@ -2110,11 +2228,14 @@
         renderReadout() {
           const reading = this.readout.read();
           if (!reading || !this.chrome) return;
-          const signature = `${reading.index}:${reading.close}:${reading.volume}:${this.scheme}`;
+          const signature = `${reading.index}:${reading.close}:${reading.volume}:${this.scheme}:${this.intervalKey}:${this.paneKind}`;
           if (signature === this.readoutSig) return;
           this.readoutSig = signature;
           const color = reading.rising ? this.upColor : this.downColor;
+          const tone = reading.rising ? 'up' : 'down';
           const field = (key) => this.chrome.fields[key];
+          field('interval').textContent = this.intervalLabel(this.intervalKey);
+          this.renderPaneTitles(reading, tone);
           field('open').textContent = TerminalPage.price(reading.open);
           field('high').textContent = TerminalPage.price(reading.high);
           field('low').textContent = TerminalPage.price(reading.low);
@@ -2129,6 +2250,40 @@
             this.chrome.ohlc.style.left = `${plot.x + 8}px`;
             this.chrome.ohlc.style.top = `${plot.y + 4}px`;
           }
+        }
+
+        /**
+         * 两块副图左上角的图例行（主流看盘软件每块 pane 都有一行）：
+         * 成交量写当前量、副图写指标名 + 参数 + 当前值，值随涨跌上色。
+         */
+        renderPaneTitles(reading, tone) {
+          const volume = this.chrome.volumeTitle;
+          if (volume) {
+            const text = reading.volume === null ? '-' : ICETradingChart.formatVolume(reading.volume);
+            volume.innerHTML =
+              '<span class="name">Vol</span>' +
+              `<span class="val ${reading.volume === null ? '' : tone}">${text}</span>`;
+          }
+          const indicator = this.chrome.indicatorTitle;
+          if (!indicator) return;
+          const data = this.paneIndicator;
+          const at = (series) => {
+            const value = series && series[reading.index];
+            return value === null || value === undefined ? '-' : TerminalPage.round2(value);
+          };
+          if (data.kind === 'rsi') {
+            const value = at(data.rsi);
+            indicator.innerHTML =
+              '<span class="name">RSI</span><span class="arg">14</span>' +
+              `<span class="val ${typeof value === 'number' && value >= 50 ? 'up' : 'down'}">${value}</span>`;
+            return;
+          }
+          const histogram = data.histogram && data.histogram[reading.index];
+          indicator.innerHTML =
+            '<span class="name">MACD</span><span class="arg">12 26 9</span>' +
+            `<span class="val" style="color:${TerminalPage.DIF_COLOR}">DIF ${at(data.dif)}</span>` +
+            `<span class="val" style="color:${TerminalPage.DEA_COLOR}">DEA ${at(data.dea)}</span>` +
+            `<span class="val ${histogram !== null && histogram !== undefined && histogram < 0 ? 'down' : 'up'}">MACD ${at(data.histogram)}</span>`;
         }
 
         /** 外壳同步：按几何签名增量写 DOM（每帧无条件写会掉帧）。 */

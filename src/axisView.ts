@@ -7,6 +7,7 @@ import { plotRect, yToPrice } from './project';
  * - `resetAutoScale()`：把 y 交还给自动量程（右侧标尺上**双击**）；
  * - `zoomValueAxis()`：缩放 y（右侧标尺上**滚轮**）；
  * - `beginValueAxisScale()` / `applyValueAxisScale()`：缩放 y（右侧标尺上**按住上下拖**）。
+ * - `panTimeAxis()` / `zoomTimeAxis()`：平移 / 缩放 x（键盘方向键与 +/-，见示例页 `bindKeyboard`）。
  *
  * 为什么这两个动作归应用侧而不是引擎：引擎的手势一律要求指针**落在绘图区内**
  * （`InteractionController.beginDrag` / `handleWheel` 都先判 `isInsidePlot`），
@@ -203,5 +204,99 @@ export function applyValueAxisScale(chart: ICEChart, scale: ValueAxisScale, y: n
   const nextSpan = Math.min(Math.max(span * coeff, fullSpan * limits.min), fullSpan * limits.max);
   const center = (d0 + d1) / 2;
   chart.setDomain('y', [center - nextSpan / 2, center + nextSpan / 2], 'zoom');
+  return true;
+}
+
+/** 类目轴上「当前窗口的首尾下标」—— 键盘平移 / 缩放共用。 */
+interface CategoryWindow {
+  /** 完整数据（渲染窗口）里的类目 key。 */
+  full: any[];
+  from: number;
+  to: number;
+}
+
+/**
+ * 取类目轴的当前窗口（首尾**下标**）。
+ *
+ * 类目轴的 `getDomain('x')` 给的是「窗口内的整串类目」（120 根就是 120 项），
+ * 所以先在下标空间里算，最后再用 key 还原成窗口 —— 引擎的公开契约是「首尾两个 key」。
+ */
+function categoryWindow(chart: ICEChart): CategoryWindow | null {
+  if (!chart || !chart.norm || !chart.layout) return null;
+  const axis = chart.norm.xAxis;
+  const scale = axis && axis.scale;
+  if (!axis || !scale || typeof scale.isBand !== 'function' || !scale.isBand()) return null;
+  const full = chart.fullDomain('x');
+  const domain = chart.getDomain('x');
+  if (!full || full.length < 2 || !domain || domain.length < 2) return null;
+  const from = full.indexOf(domain[0]);
+  const to = full.indexOf(domain[domain.length - 1]);
+  if (from < 0 || to <= from) return null;
+  return { full, from, to };
+}
+
+/** `panTimeAxis` 的参数。不给 `bars` 就按「一屏的 10%」（至少 1 根）。 */
+export interface TimeAxisPanOptions {
+  /** 平移几根：**正数向右**（看更新的数据），负数向左。 */
+  bars?: number;
+}
+
+/**
+ * 时间轴平移（键盘 ← / → 的落点）。
+ *
+ * 走 `source: 'pan'`：引擎对平移**只要求与数据交叠 1/4 个窗口**，不会把平移夹成缩放
+ * （见上游那条「平移不许和数据范围求交」）—— 正好是「一步一步挪」要的语义。
+ * 贴到数据边缘时这里先把整窗滑到边上（跨度不变），所以窗口不会凭空变窄。
+ *
+ * @returns 是否真的平移了（不是类目轴 / 窗口取不到时返回 `false`）。
+ */
+export function panTimeAxis(chart: ICEChart, options: TimeAxisPanOptions = {}): boolean {
+  const window = categoryWindow(chart);
+  if (!window) return false;
+  const count = window.to - window.from + 1;
+  const raw = Number(options.bars);
+  const bars = isFinite(raw) && raw !== 0 ? Math.round(raw) : Math.max(1, Math.round(count * 0.1));
+  if (!bars) return false;
+  const last = window.full.length - 1;
+  const nextFrom = window.from + bars;
+  const nextTo = window.to + bars;
+  const shift = nextFrom < 0 ? -nextFrom : nextTo > last ? last - nextTo : 0;
+  const from = Math.max(0, Math.min(last - count + 1, nextFrom + shift));
+  chart.setDomain('x', [window.full[from], window.full[from + count - 1]], 'pan');
+  return true;
+}
+
+/** `zoomTimeAxis` 的参数。 */
+export interface TimeAxisZoomOptions {
+  /** 一次缩放的倍数：**> 1 是放大**（窗口变窄），`< 1` 是缩小。 */
+  factor: number;
+  /** 锚点在绘图区内的 x（画布 px），一般给指针位置；不传取绘图区中点。 */
+  anchorX?: number;
+}
+
+/**
+ * 时间轴缩放（键盘 `+` / `-` 的落点，等效于在图上滚一格滚轮）。
+ *
+ * 窗口根数 = `当前根数 / factor`，锚点按「占绘图区宽度的比例」固定在原处；
+ * **上下限交给引擎**：`setDomain(…, 'zoom')` 那条路会套 `minBarSpacing` / `maxBarSpacing`
+ * （夹的时候保住窗口中心），不必在这里重算一遍。
+ *
+ * @returns 是否真的缩放了。
+ */
+export function zoomTimeAxis(chart: ICEChart, options: TimeAxisZoomOptions): boolean {
+  const factor = Number(options && options.factor);
+  if (!isFinite(factor) || factor <= 0) return false;
+  const window = categoryWindow(chart);
+  const plot = plotRect(chart);
+  if (!window || !plot || !(plot.width > 0)) return false;
+  const count = window.to - window.from + 1;
+  const total = window.full.length;
+  const nextCount = Math.max(2, Math.min(total, Math.round(count / factor)));
+  if (nextCount === count) return false;
+  const anchorX = options.anchorX === undefined ? plot.x + plot.width / 2 : Number(options.anchorX);
+  const ratio = Math.min(1, Math.max(0, isFinite(anchorX) ? (anchorX - plot.x) / plot.width : 0.5));
+  const anchorIndex = window.from + ratio * (count - 1);
+  const nextFrom = Math.max(0, Math.min(total - nextCount, Math.round(anchorIndex - ratio * (nextCount - 1))));
+  chart.setDomain('x', [window.full[nextFrom], window.full[nextFrom + nextCount - 1]], 'zoom');
   return true;
 }

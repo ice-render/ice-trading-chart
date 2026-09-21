@@ -707,6 +707,103 @@ test.describe('K 线终端示例页', () => {
     }
   });
 
+  test('键盘：←/→ 平移时间轴、↑/↓ 缩放价格轴、+/- 缩放时间轴、Home 回到最新', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    const start = await snapshot(page);
+    expect(start.follow).toBe(true);
+
+    // ←：整窗往左挪一屏的 10%（看更老的数据），跨度不变，并转成手动
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(300);
+    const left = await snapshot(page);
+    expect(left.follow, '键盘平移也是「用户动过视窗」').toBe(false);
+    expect(left.left).toBeLessThan(start.left);
+    expect(left.panes.price.n, '平移不是缩放').toBe(start.panes.price.n);
+
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(300);
+    const back = await snapshot(page);
+    expect(back.left).toBeGreaterThan(left.left);
+    expect(back.panes.price.n).toBe(start.panes.price.n);
+
+    // ↑/↓：缩放价格轴（放大 → 窗口变窄，再按回来）
+    const y0 = (await axisDomain(page, 'price', 'y')).map(Number);
+    await page.keyboard.press('ArrowUp');
+    await page.waitForTimeout(300);
+    const y1 = (await axisDomain(page, 'price', 'y')).map(Number);
+    expect(y1[1] - y1[0], '↑ 放大价格轴').toBeLessThan(y0[1] - y0[0]);
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(300);
+    const y2 = (await axisDomain(page, 'price', 'y')).map(Number);
+    expect(y2[1] - y2[0]).toBeGreaterThan(y1[1] - y1[0]);
+
+    // `+` / `-`：缩放时间轴（根数变少 / 变多）
+    const n0 = (await snapshot(page)).panes.price.n;
+    await page.keyboard.press('Equal');
+    await page.waitForTimeout(300);
+    const n1 = (await snapshot(page)).panes.price.n;
+    expect(n1, '`+` 放大时间轴').toBeLessThan(n0);
+    await page.keyboard.press('Minus');
+    await page.waitForTimeout(300);
+    expect((await snapshot(page)).panes.price.n).toBeGreaterThan(n1);
+
+    // Home：回到最新 + 跟盘
+    await page.keyboard.press('Home');
+    await page.waitForTimeout(500);
+    const home = await snapshot(page);
+    expect(home.follow).toBe(true);
+    expect(home.panes.price.last).toBe(home.newestKey);
+  });
+
+  test('每个 pane 左上角一行图例（含当前值），主图中央有淡水印', async ({ page }) => {
+    // 不悬停也读「最后一根真实 K」：抬头与两块副图的图例都该有数
+    const state = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const text = (selector: string) => {
+        const node = document.querySelector(selector) as HTMLElement | null;
+        return node ? (node.textContent || '').replace(/\s+/g, ' ').trim() : null;
+      };
+      const watermark = document.querySelector('.watermark') as HTMLElement | null;
+      const plot = pg.stack.chartOf('price').layout.plot;
+      const parts = (selector: string) =>
+        Array.from(document.querySelectorAll(`${selector} > span`)).map((node) =>
+          (node.textContent || '').replace(/\s+/g, ' ').trim()
+        );
+      return {
+        ohlc: text('.ohlc'),
+        volume: text('.pane-title[data-pane="volume"]'),
+        volumeParts: parts('.pane-title[data-pane="volume"]'),
+        indicator: text('.pane-title[data-pane="indicator"]'),
+        indicatorParts: parts('.pane-title[data-pane="indicator"]'),
+        watermark: watermark ? watermark.textContent : null,
+        watermarkLeft: watermark ? parseFloat(watermark.style.left) : 0,
+        watermarkTop: watermark ? parseFloat(watermark.style.top) : 0,
+        centerLeft: plot.x + plot.width / 2,
+        centerTop: plot.y + plot.height / 2,
+        volumeTop: parseFloat((document.querySelector('.pane-title[data-pane="volume"]') as HTMLElement | null)?.style.top || ''),
+        indicatorTop: parseFloat((document.querySelector('.pane-title[data-pane="indicator"]') as HTMLElement | null)?.style.top || ''),
+      };
+    });
+    expect(state.ohlc).toContain('SYN/USDT');
+    expect(state.ohlc, '抬头有开高低收的数').toMatch(/开 \d+\.\d{2}/);
+    // 图例由若干 span 拼成（间距走 CSS，文本里不带空格）
+    expect(state.volumeParts[0]).toBe('Vol');
+    expect(state.volumeParts[1]).toMatch(/^[\d.]+[KMB]?$/);
+    expect(state.indicatorParts[0]).toBe('MACD');
+    expect(state.indicatorParts[1]).toBe('12 26 9');
+    expect(state.indicatorParts.join(' '), '副图图例带当前值').toMatch(/DIF -?\d/);
+    expect(state.indicatorParts.join(' ')).toMatch(/DEA -?\d/);
+
+    expect(state.watermark).toBe('SYN/USDT');
+    expect(Math.abs(state.watermarkLeft - state.centerLeft)).toBeLessThanOrEqual(1);
+    expect(Math.abs(state.watermarkTop - state.centerTop)).toBeLessThanOrEqual(1);
+
+    // 两块副图的图例各自贴在自己那一格的上方（不是都挤在主图上）
+    expect(state.volumeTop).toBeGreaterThan(0);
+    expect(state.volumeTop).toBeLessThan(state.indicatorTop);
+  });
+
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {
     await dragVertical(page, 'price', 160);
     const after = await snapshot(page);

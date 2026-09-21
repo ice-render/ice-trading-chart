@@ -150,4 +150,27 @@ describe('createOhlcReadout（抬头数据源）', () => {
     // 指定了不存在的 id 时退回第一个 candlestick 系列，而不是返回 null
     expect(readout.read()!.index).toBe(2);
   });
+
+  it('尾巴上挂着「未来空位」时，兜底读最后一根真实 K（不是空位）', async () => {
+    const c = await mount({
+      ...OPTION,
+      series: [
+        {
+          ...OPTION.series[0],
+          data: [
+            { x: 'D1', o: 100, c: 110, l: 95, h: 115 },
+            { x: 'D2', o: 110, c: 105, l: 100, h: 118 },
+            // 只有类目、没有 OHLC 的空位（类目轴靠它把格子补齐）
+            { x: 'D3' },
+            { x: 'D4' },
+          ],
+        },
+      ],
+    });
+    const reading = createOhlcReadout(c).read();
+    expect(reading).not.toBeNull();
+    // 落在最后一根真实 K 上
+    expect(reading!.index).toBe(1);
+    expect(reading!.close).toBe(105);
+  });
 });

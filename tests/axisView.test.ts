@@ -3,8 +3,10 @@ import {
   applyValueAxisScale,
   beginValueAxisScale,
   createTradingChart,
+  panTimeAxis,
   resetAutoScale,
   yToPrice,
+  zoomTimeAxis,
   zoomValueAxis,
 } from '../src/index';
 import type { TradingChartOption } from '../src/types';
@@ -227,5 +229,98 @@ describe('数值轴的视图控制（标尺双击自适应 / 标尺滚轮缩放�
     for (let i = 0; i < 10; i++) zoomValueAxis(c, { factor: 1.26 });
     const fine = c.formatAxisValue('y', 1.55);
     expect(decimals(fine)).toBeGreaterThan(decimals(coarse));
+  });
+});
+
+describe('时间轴的键盘视图控制（panTimeAxis / zoomTimeAxis）', () => {
+  let canvas: HTMLCanvasElement;
+  let chart: ICEChart | null = null;
+
+  beforeEach(() => {
+    canvas = document.createElement('canvas');
+    canvas.width = 800;
+    canvas.height = 400;
+    document.body.appendChild(canvas);
+  });
+
+  afterEach(() => {
+    if (chart) chart.destroy();
+    chart = null;
+    if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+  });
+
+  /** 120 根 K 线的类目轴，初始窗口取中间 40 根（两边都留出可平移的余量）。 */
+  async function mount(): Promise<ICEChart> {
+    const data = Array.from({ length: 120 }, (_item, index) => ({
+      x: `D${String(index).padStart(3, '0')}`,
+      o: 100,
+      c: 100 + index,
+      l: 99,
+      h: 101 + index,
+    }));
+    const c = createTradingChart(canvas, {
+      legend: { show: false },
+      animation: { enabled: false },
+      xAxis: { type: 'category' },
+      yAxis: { position: 'right' },
+      series: [{ id: 'k', type: 'candlestick', data }],
+    });
+    await c.render();
+    chart = c;
+    c.setDomain('x', ['D040', 'D079']);
+    return c;
+  }
+
+  it('平移：整窗一起挪、跨度不变', async () => {
+    const c = await mount();
+    const before = c.getDomain('x');
+    expect(before.length).toBe(40);
+    expect(panTimeAxis(c, { bars: 5 })).toBe(true);
+    const after = c.getDomain('x');
+    // 跨度不许变（平移不是缩放）；向右挪 5 根
+    expect(after.length).toBe(before.length);
+    expect(after[0]).toBe('D045');
+    expect(after[after.length - 1]).toBe('D084');
+
+    expect(panTimeAxis(c, { bars: -5 })).toBe(true);
+    expect(c.getDomain('x')).toEqual(before);
+  });
+
+  it('平移：不给根数就按一屏的 10%，贴边时整窗滑到边上', async () => {
+    const c = await mount();
+    expect(panTimeAxis(c)).toBe(true);
+    expect(c.getDomain('x').length).toBe(40);
+    // 一路挪到最右边：窗口贴着最后 40 根，跨度不变
+    for (let i = 0; i < 20; i++) panTimeAxis(c, { bars: 10 });
+    const domain = c.getDomain('x');
+    expect(domain.length).toBe(40);
+    expect(domain[domain.length - 1]).toBe('D119');
+  });
+
+  it('缩放：根数按倍数走、锚点那根基本不动', async () => {
+    const c = await mount();
+    const before = c.getDomain('x');
+    const plot = c.layout.plot;
+    const anchorX = plot.x + plot.width / 2;
+    expect(zoomTimeAxis(c, { factor: 2, anchorX })).toBe(true);
+    const zoomed = c.getDomain('x');
+    expect(zoomed.length).toBeLessThan(before.length);
+    expect(zoomed.length).toBeGreaterThanOrEqual(19);
+    expect(zoomed.length).toBeLessThanOrEqual(21);
+    // 锚点在中点 → 窗口中心那一根还是同一根
+    expect(zoomed[Math.floor(zoomed.length / 2)]).toBe(before[Math.floor(before.length / 2)]);
+
+    expect(zoomTimeAxis(c, { factor: 0.5, anchorX })).toBe(true);
+    expect(c.getDomain('x').length).toBeGreaterThan(zoomed.length);
+  });
+
+  it('缩放：上下限由引擎兜住（缩到底也不糊成色带）', async () => {
+    const c = await mount();
+    for (let i = 0; i < 40; i++) zoomTimeAxis(c, { factor: 1.2 });
+    const smallest = c.getDomain('x').length;
+    const plot = c.layout.plot;
+    // 最少也要盖住两根、每根至少 0.5px（引擎的 minBarSpacing）
+    expect(smallest).toBeGreaterThanOrEqual(2);
+    expect(plot.width / Math.max(1, smallest)).toBeGreaterThanOrEqual(0.5 - 1e-6);
   });
 });

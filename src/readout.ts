@@ -98,11 +98,32 @@ export function createOhlcReadout(chart: ICEChart, options: OhlcReadoutOptions =
     };
   };
 
+  /**
+   * 最后一根**读得出 K 线**的下标。
+   *
+   * 为什么不能直接用 `points.length - 1`：交易图表的渲染窗口尾巴上常常挂着
+   * 「未来空位」（只有类目、没有 OHLC），视窗停在最新一根时最后那几个点就是空位 ——
+   * 拿最后一个点当兜底会读不出 OHLC，`read()` 直接返回 null，页面的抬头 / 图例
+   * 在**没有悬停**的时候就是空的（实测踩到）。
+   *
+   * 往前扫的结果按「点数」缓存：数据刷新（同一根更新）不动它，新增一根才失效。
+   */
+  let lastRealCache: { length: number; index: number } | null = null;
+  const lastRealIndex = (series: InternalSeries): number => {
+    const points: DataPoint[] = series.points || [];
+    if (!points.length) return 0;
+    if (lastRealCache && lastRealCache.length === points.length) return lastRealCache.index;
+    let index = points.length - 1;
+    while (index > 0 && !readOhlc(points[index].raw, series.option as any)) index--;
+    lastRealCache = { length: points.length, index };
+    return index;
+  };
+
   const read = (index?: number): OhlcReading | null => {
     const series = findSeries();
     if (!series) return null;
     const target = index === undefined ? hoverIndex(series) : index;
-    const fallback = (series.points || []).length - 1;
+    const fallback = lastRealIndex(series);
     return build(series, target === null || target === undefined ? fallback : target);
   };
 

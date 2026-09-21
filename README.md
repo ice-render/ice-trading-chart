@@ -195,6 +195,7 @@ book.setPalette({ upColor, downColor });                              // 换配�
 | `createOhlcReadout(chart, { seriesId?, volume? })` | 光标 / 数据 → 一根 K 线的读数（抬头用） |
 | `plotRect` / `priceToY` / `yToPrice` / `categoryToX` / `xToCategoryIndex` | 画布内坐标投影（HTML 外壳对齐用） |
 | `resetAutoScale(chart)` / `zoomValueAxis(chart, { factor, anchorY })` / `beginValueAxisScale(chart, y)` + `applyValueAxisScale(chart, scale, y)` | 数值轴的视图控制：自适应（清掉手动 y 窗口，**x 窗口不动**）/ 以指针为锚点缩放 / 按下-拖动缩放（快照口径，拖回出发点即原样）。右侧标尺「双击 / 滚轮 / 上下拖」三个手势的落点 |
+| `panTimeAxis(chart, { bars? })` / `zoomTimeAxis(chart, { factor, anchorX? })` | 时间轴的视图控制：整窗平移（正数向右，贴边滑）/ 按倍数缩放（锚点占绘图区宽度的比例固定）。键盘 ←→ / `+`-` 的落点，上下限由引擎兜（`minBarSpacing`） |
 | `formatPrice(value, precision?)` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化。`formatPrice` 给了 `precision` 就固定小数位、不去尾随 0（报价口径，`DEFAULT_PRICE_PRECISION = 2`） |
 | `CandlestickSeries` / `resolveCandleStyle` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与配色 |
 | `createPaneStack(container, specs, options)` | 真副图：多实例 + 联动 + 横向对齐 |
@@ -243,6 +244,8 @@ npm run build && npx http-server . -p 8102 -c-1
 | 数值轴刻度密度 | 价格轴默认就有 8~13 档（一档 19~47px），不再是引擎默认的 5 档 / 57~71px；密度按「轴长 ÷ 一档的最小像素」反推，缩放 / 平移 / 手动量程都会跟着重算，三块 pane 各自按自己的轴长给档数 |
 | 报价精度 | 刻度、最新价签、准星价签、抬头 OHLC 四处统一两位小数（`extras.pricePrecision = 2`）：`41800.00` 而不是 `41800`；刻度标签补位预算（`axisLabelChars`）跟着加宽到 9 字符，三块 pane 仍然等宽 |
 | 背景方格 | 三块 pane 都开 `grid: { x: true }`：竖线跟**时间标签同一批位置**（引擎的 x 轴抽稀表），三块 pane 的竖线与横向刻度交叉成方格；上面两块藏掉 x 轴也不影响网格 |
+| 每块 pane 一行图例 | 主图左上角「SYN/USDT · 周期 + 开高低收量 + 涨跌」、成交量「Vol + 当前量」、副图「MACD 12 26 9 + DIF/DEA/柱值」（值随涨跌上色）；没有悬停时读**最后一根真实 K**。主图中央还有一枚淡水印 |
+| 键盘 | `←` / `→` 平移时间轴、`↑` / `↓` 缩放价格轴、`+` / `-` 缩放时间轴、`Home` 回到最新；与鼠标手势共用同一套夹取与「跟盘 → 手动」状态机（引擎自带的键盘导航在示例里关掉） |
 | 右上工具栏 | 暂停 / 继续（停行情推流）、重置（重新采样） |
 | 右侧下单面板 | 限价 / 市价、全仓 / 逐仓、杠杆滑块、止盈止损、只减仓 |
 | 底部三块 | 持仓表（未实现盈亏 / 保证金 / 强平价随现价动）、委托表（可撤单）、画线记录（数据坐标 JSON） |
