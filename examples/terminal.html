@@ -97,8 +97,27 @@
 
       /* 图表顶部工具条：内联的收藏项 + 下拉菜单 */
       .tb-menu { position: relative; }
-      .tb-trigger i { font-style: normal; opacity: 0.55; margin-left: 3px; }
-      .tb-menu.open .tb-trigger { color: #fff; border-color: var(--accent); background: rgba(59, 130, 246, 0.16); }
+      /*
+        工具条的触发按钮用**图标**（主流看盘软件的顶部小工具条都是图标 + 悬停提示）：
+        透明底 + 悬停浅底 + 打开时高亮，图标是内联 SVG（stroke 走 currentColor，深浅色都能用）。
+        「周期」那个额外带一个当前周期文字（周期本身是文字信息，图标说不清是哪一个）。
+      */
+      .tb-trigger {
+        display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 6px;
+        background: none; border: 1px solid transparent; border-radius: 4px;
+        color: #a8b4c2; cursor: pointer; position: relative;
+      }
+      .tb-trigger:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+      .tb-trigger svg { width: 16px; height: 16px; display: block; }
+      .tb-trigger .lbl { font: 11px/1 var(--mono); color: inherit; }
+      /* 有内容时的标记点：指标开着 / 画线工具武装着 / 显示改了默认值 */
+      .tb-trigger .dot {
+        display: none; position: absolute; right: 3px; top: 3px; width: 4px; height: 4px;
+        border-radius: 50%; background: var(--accent);
+      }
+      .tb-trigger.on .dot { display: block; }
+      .tb-trigger.on { color: #dfe7ef; }
+      .tb-menu.open .tb-trigger { color: #fff; background: rgba(59, 130, 246, 0.18); }
       .tb-panel {
         position: absolute; top: calc(100% + 5px); left: 0; z-index: 40; display: none;
         min-width: 196px; max-height: 340px; overflow: auto;
@@ -219,20 +238,44 @@
         <div class="chart-bar" id="chart-bar">
           <div class="tabs" id="tb-intervals" style="border:0;padding:0"></div>
           <div class="tb-menu" data-menu="intervals">
-            <button class="btn tb-trigger" type="button">周期 <i>▾</i></button>
+            <button class="tb-trigger" type="button" title="周期" aria-label="周期">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
+                <circle cx="8" cy="8" r="6.2" />
+                <path d="M8 4.4V8l2.6 1.6" stroke-linecap="round" />
+              </svg>
+              <b class="lbl" data-tb="interval">5m</b>
+            </button>
             <div class="tb-panel" id="panel-intervals"></div>
           </div>
           <span class="sep"></span>
           <div class="tb-menu" data-menu="indicators">
-            <button class="btn tb-trigger" type="button">指标 <i>▾</i></button>
+            <button class="tb-trigger" type="button" title="指标" aria-label="指标">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M3.2 12.4V8.6M8 12.4V3.6M12.8 12.4v-5.2" />
+              </svg>
+              <i class="dot"></i>
+            </button>
             <div class="tb-panel" id="panel-indicators"></div>
           </div>
           <div class="tb-menu" data-menu="drawings">
-            <button class="btn tb-trigger" type="button">画线 <i>▾</i></button>
+            <button class="tb-trigger" type="button" title="画线" aria-label="画线">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+                <path d="M11.4 2.6l2 2L5.6 12.4l-2.6.6.6-2.6 7.8-7.8z" />
+                <path d="M10.2 3.8l2 2" stroke-linecap="round" />
+              </svg>
+              <i class="dot"></i>
+            </button>
             <div class="tb-panel" id="panel-drawings"></div>
           </div>
           <div class="tb-menu" data-menu="display">
-            <button class="btn tb-trigger" type="button">显示 <i>▾</i></button>
+            <button class="tb-trigger" type="button" title="显示" aria-label="显示">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                <path d="M2.6 4.6h10.8M2.6 11.4h10.8" />
+                <circle cx="6" cy="4.6" r="1.6" fill="var(--panel-2)" />
+                <circle cx="10.4" cy="11.4" r="1.6" fill="var(--panel-2)" />
+              </svg>
+              <i class="dot"></i>
+            </button>
             <div class="tb-panel" id="panel-display"></div>
           </div>
           <span class="readout" id="readout">-</span>
@@ -1456,10 +1499,36 @@
           this.renderIndicatorPanel();
           this.renderDrawingPanel();
           this.renderDisplayPanel();
+          this.syncToolbarState();
+        }
+
+        /**
+         * 图标按钮上的状态：周期文字 + 三个「有内容」的小圆点。
+         *
+         * 主流看盘软件的顶部工具条是图标，图标本身说不出「现在开着没」——
+         * 所以指标开着、画线武装着（或已经画了东西）、显示改了默认值时各点一个圆点。
+         */
+        syncToolbarState() {
+          // 用周期**本身**（"5m"），和旁边那排收藏项同一个写法 —— 写成「5 分钟」就重复了
+          const label = document.querySelector('.tb-trigger [data-tb="interval"]');
+          if (label) label.textContent = this.intervalKey;
+          const drawings = this.drawing ? this.drawing.dump() : [];
+          const states = {
+            indicators: !!(this.indicators.ma || this.indicators.ema || this.indicators.boll),
+            drawings: !!((this.drawing && this.drawing.mode()) || drawings.length),
+            display: this.scheme !== 'redUp' || !!this.hollow,
+          };
+          for (const menu of document.querySelectorAll('.tb-menu')) {
+            const name = menu.getAttribute('data-menu');
+            const trigger = menu.querySelector('.tb-trigger');
+            if (trigger && name) trigger.classList.toggle('on', !!states[name]);
+          }
         }
 
         /** 顶部工具条上常显的那一排周期（就是收藏列表）。 */
         renderIntervalBar() {
+          // 图标按钮上的周期文字与状态点跟着刷新
+          this.syncToolbarState();
           const bar = document.getElementById('tb-intervals');
           bar.innerHTML = this.favorites
             .filter((key) => this.intervalOf(key))
@@ -1503,6 +1572,7 @@
         }
 
         renderIndicatorPanel() {
+          this.syncToolbarState();
           const row = (id, label, checked) =>
             `<div class="tb-item ${checked ? 'active' : ''}" data-ind="${id}"><span class="tb-mark">${checked ? '✓' : ''}</span>${label}</div>`;
           const pane = (id, label, checked) =>
@@ -1518,6 +1588,7 @@
         }
 
         renderDrawingPanel() {
+          this.syncToolbarState();
           const mode = this.drawing ? this.drawing.mode() : null;
           const tool = (id, label) =>
             `<div class="tb-item ${mode === id ? 'active' : ''}" data-tool="${id}"><span class="tb-mark">${mode === id ? '✓' : ''}</span>${label}</div>`;
@@ -1533,6 +1604,7 @@
         }
 
         renderDisplayPanel() {
+          this.syncToolbarState();
           const scheme = (id, label) =>
             `<div class="tb-item ${this.scheme === id ? 'active' : ''}" data-scheme="${id}"><span class="tb-mark">${this.scheme === id ? '●' : ''}</span>${label}</div>`;
           document.getElementById('panel-display').innerHTML =
@@ -2220,6 +2292,7 @@
         }
 
         renderDrawings() {
+          this.syncToolbarState();
           const list = this.drawing ? this.drawing.dump() : [];
           document.getElementById('d-count').textContent = String(list.length);
           document.getElementById('d-dump').textContent = JSON.stringify(list, null, 1);

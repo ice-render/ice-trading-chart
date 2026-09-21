@@ -223,6 +223,8 @@ async function gridColumns(page: Page, id: string) {
         }
       }
       if (run.length) lines.push((run[0] + run[run.length - 1]) / 2 / dpr);
+      // 一行里一条线都没有 = 这一行没落在网格上（画布还没重绘完 / 正好在两块之间）→ 换一条
+      if (!lines.length) continue;
       return { lines, y: y / dpr };
     }
     return { lines: [] as number[], y: -1 };
@@ -683,6 +685,8 @@ test.describe('K 线终端示例页', () => {
     await dragLeft(page, 380);
     const deep = await snapshot(page);
     expect(deep.visibleReal).toBe(0);
+    // 拖动是 rAF 节流的刷新，等三块画布都画完再扫像素
+    await page.waitForTimeout(300);
 
     const price = await gridColumns(page, 'price');
     const volume = await gridColumns(page, 'volume');
@@ -802,6 +806,59 @@ test.describe('K 线终端示例页', () => {
     // 两块副图的图例各自贴在自己那一格的上方（不是都挤在主图上）
     expect(state.volumeTop).toBeGreaterThan(0);
     expect(state.volumeTop).toBeLessThan(state.indicatorTop);
+  });
+
+  test('顶部工具条是图标按钮：悬停提示、点击展开、Esc 收起，收藏周期照旧一键切换', async ({ page }) => {
+    const triggers = () =>
+      page.evaluate(() =>
+        Array.from(document.querySelectorAll('.tb-menu .tb-trigger')).map((node) => ({
+          menu: node.closest('.tb-menu')!.getAttribute('data-menu'),
+          title: node.getAttribute('title'),
+          icons: node.querySelectorAll('svg').length,
+          text: (node.textContent || '').trim(),
+          on: node.classList.contains('on'),
+        }))
+      );
+    const panel = (id: string) => page.evaluate((menu) => getComputedStyle(document.getElementById(`panel-${menu}`)!).display, id);
+
+    const start = await triggers();
+    expect(start.map((item) => item.menu)).toEqual(['intervals', 'indicators', 'drawings', 'display']);
+    for (const item of start) {
+      expect(item.icons, `${item.menu} 是图标按钮`).toBe(1);
+      expect(item.title, `${item.menu} 有悬停提示`).toBeTruthy();
+    }
+    // 只有「周期」那一个带文字（周期本身是文字信息），其余三个是纯图标
+    expect(start.filter((item) => item.text).map((item) => item.text)).toEqual(['5m']);
+    // 指标默认开着 MA → 图标上带状态点
+    expect(start[1].on).toBe(true);
+    expect(start[2].on, '没武装画线工具时不点状态点').toBe(false);
+
+    await page.click('.tb-menu[data-menu="indicators"] .tb-trigger');
+    expect(await panel('indicators'), '点图标展开面板').toBe('block');
+    // 指标是多选：勾一个之后面板保持展开
+    const before = await page.evaluate(() => Boolean((window as any).__page.indicators.ema));
+    await page.click('#panel-indicators [data-ind="ema"]');
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => Boolean((window as any).__page.indicators.ema))).toBe(!before);
+    expect(await panel('indicators'), '勾选时保持展开').toBe('block');
+
+    await page.keyboard.press('Escape');
+    expect(await panel('indicators'), 'Esc 收起').toBe('none');
+
+    // 画线工具武装起来 → 铅笔图标点状态点，选中项自动收起面板
+    await page.click('.tb-menu[data-menu="drawings"] .tb-trigger');
+    await page.click('#panel-drawings [data-tool="trend"]');
+    await page.waitForTimeout(150);
+    const armed = await triggers();
+    expect(armed[2], '武装画线工具时点状态点').toMatchObject({ on: true });
+    expect(await panel('drawings'), '选工具后自动收起').toBe('none');
+    await page.keyboard.press('Escape');
+
+    // 周期：图标按钮上的文字跟着走，收藏项照旧一键切换
+    await page.click('#tb-intervals button[data-interval="15m"]');
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => document.querySelector('.tb-trigger [data-tb="interval"]')!.textContent)).toBe('15m');
+    expect(await page.evaluate(() => (window as any).__page.intervalKey)).toBe('15m');
   });
 
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {
