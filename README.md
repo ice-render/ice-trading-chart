@@ -161,6 +161,25 @@ layer.load(JSON.parse(saved)); // 换台机器再 load 回来
 
 > 画线依赖**类目轴**（x 以类目标签存储）。数值/时间轴上请另择方案。
 
+## 盘口组件
+
+盘口（买卖十档）是交易专属 UI，也在这个包里 —— 通用图表库不该认识它：
+
+```ts
+const book = createOrderBook(document.getElementById('order-book'), {
+  levels: 10,                                   // 每侧档数，默认就是 10
+  upColor: '#f04438', downColor: '#12d18d',     // 跟随应用的涨跌色
+  onPickPrice: (price, side) => { form.price.value = String(price); },
+});
+book.update({ asks, bids }, { mid: lastPrice, midColor: upColor });   // 推一次行情
+book.setPalette({ upColor, downColor });                              // 换配色
+```
+
+- 数据契约：`asks` / `bids` 都是**最优价在前**；卖盘展示时自动倒序（最远价在上、最优价贴着中间价）；
+- **结构只建一次**（一档一行），`update()` 只改数值与深度条宽度；数据没变时按签名跳过，一次 DOM 都不写；
+- 自带样式（注入一次、id 守卫），页面不用为它写 CSS；
+- 中间价那一行给中间价与价差；`midColor` 由调用方给（组件不知道该跟谁比）。
+
 ## 公开 API
 
 | 导出 | 用途 |
@@ -180,6 +199,7 @@ layer.load(JSON.parse(saved)); // 换台机器再 load 回来
 | `createOverlaySeries` / `createMacdPaneOption` / `createRsiPaneOption` | 指标 option 构造 |
 | `sma` / `ema` / `stdev` / `bollinger` / `macd` / `rsi` / `macdRange` | 指标纯函数 |
 | `createDrawingLayer(chart, options)` | 画线图层（SVG 覆盖层，数据坐标持久化） |
+| `createOrderBook(container, options)` | 盘口组件（买卖十档，自带样式与深度条） |
 
 ## 图表外壳：数据由库给，排版由页面画
 
@@ -210,11 +230,13 @@ npm run build && npx http-server . -p 8102 -c-1
 | 区域 | 用到的能力 |
 | --- | --- |
 | 顶部行情条 | 最新价 / 涨跌幅 / 高低 / 量 / 资金费率结算倒计时 / 周期切换（1m~1D）/ 涨跌配色切换 |
-| 左侧盘口十档 | 页面自己的 HTML（图表库不管盘口），深度渐变、点价格填单 |
 | 中间图表 | `createPaneStack` 三块真副图（价格 / 成交量 / MACD 或 RSI）、`createOverlaySeries` 均线、`createDrawingLayer` 画线、`createOhlcReadout` 抬头、`project.ts` 投影（最新价线 / 右轴价签 / 十字光标两侧标签） |
+| 图表右侧盘口 | `createOrderBook` 组件（每侧 10 档、深度条、点价填单） |
 | 右上工具栏 | MA / BOLL 开关、MACD / RSI 切换、水平线 / 垂直线 / 趋势线 / 区间矩形 |
 | 右侧下单面板 | 限价 / 市价、全仓 / 逐仓、杠杆滑块、止盈止损、只减仓 |
 | 底部三块 | 持仓表（未实现盈亏 / 保证金 / 强平价随现价动）、委托表（可撤单）、画线记录（数据坐标 JSON） |
+
+布局（左到右）：**图表 · 盘口 · 下单**，下方是持仓 / 委托 / 画线记录。
 
 真交互：点盘口价格填单、限价挂单、市价立即成交、现价穿过限价单自动撮合、拖杠杆重算保证金与强平价、
 滚轮缩放任一 pane 其余跟着走。

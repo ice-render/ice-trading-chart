@@ -58,8 +58,15 @@ export interface PaneSpec {
 export interface PaneStackOptions {
   /** 容器总高（px）。不给则用容器当前高度。 */
   height?: number;
-  /** pane 之间的间距（px），默认 8。 */
+  /**
+   * pane 之间的分隔线高度（px），默认 **1**。
+   *
+   * 主流终端库的默认就是 1 像素的分隔线（外加一个更宽的透明拖拽热区）——
+   * 这个值一大，副图看着就和主图「不像一体」。
+   */
   gap?: number;
+  /** 分隔线颜色，默认一条很淡的白线。传 `'transparent'` 就是纯留白。 */
+  separatorColor?: string;
   /** 右轴标签的定宽字符数，默认 9。 */
   axisLabelChars?: number;
   /** 主题基座，默认深色；字体固定为等宽（对齐的前提）。 */
@@ -128,7 +135,8 @@ function alignAxes(option: ChartOption, chars: number): AxisOption[] {
  * ```
  */
 export function createPaneStack(container: HTMLElement, specs: PaneSpec[], options: PaneStackOptions = {}): PaneStack {
-  const gap = options.gap === undefined ? 8 : options.gap;
+  const gap = options.gap === undefined ? 1 : options.gap;
+  const separatorColor = options.separatorColor === undefined ? 'rgba(255, 255, 255, 0.08)' : options.separatorColor;
   const chars = options.axisLabelChars === undefined ? DEFAULT_AXIS_LABEL_CHARS : options.axisLabelChars;
   const theme = baseTheme(options.theme);
   const dpr = resolveDpr(options.dpr);
@@ -155,11 +163,17 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
   specs.forEach((spec, index) => {
     const weight = Math.max(0.0001, spec.weight === undefined ? 1 : spec.weight);
     const minHeight = spec.minHeight === undefined ? 56 : spec.minHeight;
+    if (index > 0 && gap > 0) {
+      const separator = document.createElement('div');
+      separator.dataset.paneSeparator = spec.id;
+      separator.style.height = `${gap}px`;
+      separator.style.background = separatorColor;
+      host.appendChild(separator);
+    }
     const holder = document.createElement('div');
     holder.dataset.paneId = spec.id;
     holder.style.position = 'relative';
     holder.style.height = `${Math.max(minHeight, Math.round((usable * weight) / totalWeight))}px`;
-    holder.style.marginTop = index === 0 ? '0' : `${gap}px`;
     const canvas = document.createElement('canvas');
     canvas.style.display = 'block';
     holder.appendChild(canvas);
@@ -244,6 +258,9 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     for (const entry of created) {
       entry.chart.destroy();
       if (entry.holder.parentNode) entry.holder.parentNode.removeChild(entry.holder);
+    }
+    for (const node of Array.from(host.querySelectorAll('[data-pane-separator]'))) {
+      if (node.parentNode) node.parentNode.removeChild(node);
     }
     created.length = 0;
   };

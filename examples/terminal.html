@@ -38,7 +38,8 @@
       .topbar .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
       /* ---------------- 三栏 ---------------- */
-      .terminal { display: grid; grid-template-columns: 228px minmax(0, 1fr) 262px; gap: 1px; background: var(--line); }
+      /* 左到右：图表（自适应）· 盘口 · 下单面板 */
+      .terminal { display: grid; grid-template-columns: minmax(0, 1fr) 228px 262px; gap: 1px; background: var(--line); }
       .col { background: var(--panel-2); min-width: 0; }
       .blk { border-bottom: 1px solid var(--line); }
       .blk:last-child { border-bottom: none; }
@@ -47,24 +48,6 @@
         color: var(--dim); font-size: 11px; border-bottom: 1px solid var(--line-soft);
       }
       .blk > header .right { margin-left: auto; color: var(--muted); }
-
-      /* 盘口 */
-      .book { padding: 4px 0 6px; }
-      .book-row {
-        position: relative; display: grid; grid-template-columns: 1fr 1fr;
-        padding: 1px 10px; font: 11px/1.7 var(--mono); cursor: pointer;
-      }
-      .book-row:hover { background: rgba(255, 255, 255, 0.03); }
-      .book-row .depth { position: absolute; top: 1px; bottom: 1px; right: 0; z-index: 0; }
-      .book-row .px, .book-row .sz { position: relative; z-index: 1; }
-      .book-row .sz { text-align: right; color: var(--dim); }
-      .book-mid {
-        display: flex; align-items: baseline; gap: 8px; padding: 4px 10px;
-        border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft);
-        font-family: var(--mono);
-      }
-      .book-mid b { font-size: 15px; }
-      .book-mid span { color: var(--muted); font-size: 10px; }
 
       /* 下单 */
       form.order { padding: 8px 10px 10px; display: grid; gap: 7px; }
@@ -176,15 +159,6 @@
     </header>
 
     <div class="terminal">
-      <div class="col">
-        <section class="blk">
-          <header>盘口 <span class="right" id="b-spread">-</span></header>
-          <div class="book" id="book-asks"></div>
-          <div class="book-mid"><b id="book-mid">-</b><span id="book-tag">-</span></div>
-          <div class="book" id="book-bids"></div>
-        </section>
-      </div>
-
       <div class="col chart-col">
         <div class="chart-bar">
           <button class="btn on" id="btn-ma">MA</button>
@@ -208,6 +182,14 @@
           <span>fps <b id="s-fps">0</b></span>
           <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走</span>
         </div>
+      </div>
+
+      <div class="col">
+        <section class="blk">
+          <header>盘口 <span class="right" id="b-levels">10 档</span></header>
+          <!-- 盘口由库里的 createOrderBook 组件渲染（结构 / 样式 / 深度条 / 点击都在组件里） -->
+          <div id="order-book"></div>
+        </section>
       </div>
 
       <div class="col">
@@ -298,7 +280,8 @@
         static CHART_HEIGHT = 540;
         static AXIS_CHARS = 8;
         static BASE_PRICE = 42000;
-        static LEVELS = 5;
+        /** 盘口每侧的档数（组件默认也是 10）。 */
+        static LEVELS = 10;
         static EQUITY = 100000;
 
         static round2(value) {
@@ -346,7 +329,8 @@
         position = null;
         orders = [];
         orderSeq = 0;
-        book = { asks: [], bids: [] };
+        book = null;
+        bookData = { asks: [], bids: [] };
         pointerY = null;
         chromeSig = '';
         readoutSig = '';
@@ -403,10 +387,20 @@
             crosshair: { show: true, axis: 'x', showAxisLabel: false },
             // x 轴标签只在最下面那块副图上显示：上面两块藏掉，省纵向空间也更干净
             xAxis: { type: 'category', show: false },
+            // 三块 pane 的左右 margin 必须一致，绘图区才能严格对齐；
+            // 上下 margin 各自收紧（画布上下各 12px 的默认留白在三块 pane 间会白吃 48px）
+            margin: { top: 10, right: 16, bottom: 2, left: 12 },
             yAxis: { position: 'right' },
             volume: false,
             series: [this.candleSeries].concat(ICETradingChart.createOverlaySeries(this.candleSeries, spec)),
           };
+        }
+
+        /** 成交量轴的上下界：贴住数据 + 4% 余量（不用 nice，避免上界被抬高一截）。 */
+        get volumeAxisMax() {
+          let max = 0;
+          for (const row of this.candles) if (row.v > max) max = row.v;
+          return max > 0 ? max * 1.04 : undefined;
         }
 
         get volumeOption() {
@@ -415,7 +409,17 @@
             animation: { enabled: false },
             tooltip: { show: false },
             xAxis: { type: 'category', show: false },
-            yAxis: { position: 'right', tickCount: 3 },
+            margin: { top: 2, right: 16, bottom: 0, left: 12 },
+            // 成交量轴**贴着数据**：nice 取整会把上界抬高（实测 3188 → 4200），
+            // 白白在柱子上方留出一大块空档。关掉 nice、自己给一个 4% 的余量。
+            yAxis: {
+              position: 'right',
+              tickCount: 2,
+              nice: false,
+              min: 0,
+              max: this.volumeAxisMax,
+              formatter: (value) => ICETradingChart.formatVolume(Number(value)),
+            },
             series: [
               ICETradingChart.buildVolumeSeries(this.candleSeries, {
                 axisIndex: 0,
@@ -435,6 +439,7 @@
               animation: { enabled: false },
               tooltip: { show: false },
               xAxis: { type: 'category' },
+              margin: { top: 2, right: 16, bottom: 0, left: 12 },
               yAxis: { position: 'right', tickCount: 3, nice: false, min: 0, max: 100 },
               series: built.series,
               annotation: built.annotation,
@@ -450,6 +455,7 @@
             animation: { enabled: false },
             tooltip: { show: false },
             xAxis: { type: 'category' },
+            margin: { top: 2, right: 16, bottom: 0, left: 12 },
             yAxis: {
               position: 'right',
               tickCount: 3,
@@ -517,7 +523,8 @@
               { id: 'volume', weight: 2, option: () => this.volumeOption },
               { id: 'indicator', weight: 2, option: () => this.indicatorPaneOption },
             ],
-            { height: TerminalPage.CHART_HEIGHT, axisLabelChars: TerminalPage.AXIS_CHARS, gap: 6 }
+            // gap 用默认的 1px 分隔线（对齐主流终端的做法）
+            { height: TerminalPage.CHART_HEIGHT, axisLabelChars: TerminalPage.AXIS_CHARS }
           );
           const priceChart = this.stack.chartOf('price');
           this.canvasEl = priceChart.ice.canvasEl;
@@ -526,6 +533,16 @@
             onChange: () => this.renderDrawings(),
           });
           this.mountChrome(this.stack.holderOf('price'));
+          this.book = ICETradingChart.createOrderBook(document.getElementById('order-book'), {
+            levels: TerminalPage.LEVELS,
+            upColor: this.upColor,
+            downColor: this.downColor,
+            onPickPrice: (price) => {
+              document.getElementById('o-price').value = String(price);
+              this.setHint(`已填入盘口价 ${TerminalPage.price(price)}`);
+            },
+          });
+          document.getElementById('b-levels').textContent = `${TerminalPage.LEVELS} 档`;
           this.renderDrawings();
           window.addEventListener('resize', () => this.resize());
         }
@@ -574,6 +591,7 @@
           document.getElementById('btn-scheme').addEventListener('click', () => {
             this.scheme = this.scheme === 'redUp' ? 'greenUp' : 'redUp';
             document.getElementById('btn-scheme').textContent = this.scheme === 'redUp' ? '涨色：红' : '涨色：绿';
+            if (this.book) this.book.setPalette({ upColor: this.upColor, downColor: this.downColor });
             this.invalidate();
           });
           document.getElementById('seg-interval').addEventListener('click', (event) => {
@@ -660,8 +678,6 @@
           });
           document.getElementById('o-buy').addEventListener('click', () => this.placeOrder('long'));
           document.getElementById('o-sell').addEventListener('click', () => this.placeOrder('short'));
-          document.getElementById('book-asks').addEventListener('click', (event) => this.pickBookPrice(event));
-          document.getElementById('book-bids').addEventListener('click', (event) => this.pickBookPrice(event));
           document.getElementById('orders').addEventListener('click', (event) => {
             const id = event.target.getAttribute && event.target.getAttribute('data-cancel');
             if (id) this.cancelOrder(id);
@@ -678,13 +694,6 @@
             this.pointerY = null;
             this.syncChrome();
           });
-        }
-
-        pickBookPrice(event) {
-          const row = event.target.closest ? event.target.closest('.book-row') : null;
-          if (!row || !row.dataset.price) return;
-          document.getElementById('o-price').value = row.dataset.price;
-          this.setHint(`已填入盘口价 ${row.dataset.price}`);
         }
 
         toggleIndicator(key, button) {
@@ -755,7 +764,9 @@
 
         /** 盘口：围绕现价造十档，深度按档位衰减（伪数据，但排序与量纲是真的）。 */
         buildBook() {
-          const tick = Math.max(0.01, this.price * 0.00004);
+          // 最小变动价位：给一个**真实感**的步长。用价格的千分比当步长会算出十几块的价差，
+          // 盘口看着就不像盘口了。
+          const tick = 0.1;
           const asks = [];
           const bids = [];
           for (let i = 0; i < TerminalPage.LEVELS; i++) {
@@ -768,33 +779,16 @@
               size: TerminalPage.round2(0.2 + Math.random() * 2.4),
             });
           }
-          this.book = { asks: asks.reverse(), bids };
+          // 组件的契约是「最优价在前」，asks / bids 都按这个顺序直接给（不用反转）
+          this.bookData = { asks, bids };
         }
 
         renderBook() {
-          const all = this.book.asks.concat(this.book.bids).map((row) => row.size).concat([0.001]);
-          const maxSize = Math.max.apply(null, all);
-          const row = (level, side) => {
-            const depth = Math.max(2, Math.round((level.size / maxSize) * 100));
-            const color = side === 'ask' ? this.upColor : this.downColor;
-            return (
-              `<div class="book-row" data-price="${level.price}">` +
-              `<i class="depth" style="width:${depth}%;background:${color}22"></i>` +
-              `<span class="px" style="color:${color}">${TerminalPage.price(level.price)}</span>` +
-              `<span class="sz">${level.size.toFixed(2)}</span>` +
-              '</div>'
-            );
-          };
-          document.getElementById('book-asks').innerHTML = this.book.asks.map((level) => row(level, 'ask')).join('');
-          document.getElementById('book-bids').innerHTML = this.book.bids.map((level) => row(level, 'bid')).join('');
-          const bestAsk = this.book.asks[this.book.asks.length - 1];
-          const bestBid = this.book.bids[0];
-          const spread = bestAsk && bestBid ? bestAsk.price - bestBid.price : 0;
-          document.getElementById('b-spread').textContent = `价差 ${spread.toFixed(2)}`;
-          const mid = document.getElementById('book-mid');
-          mid.textContent = TerminalPage.price(this.price);
-          mid.style.color = this.price >= this.open24 ? this.upColor : this.downColor;
-          document.getElementById('book-tag').textContent = `标记价 ${TerminalPage.price(this.price)}`;
+          if (!this.book) return;
+          this.book.update(this.bookData, {
+            mid: this.price,
+            midColor: this.price >= this.open24 ? this.upColor : this.downColor,
+          });
         }
 
         renderTopbar() {

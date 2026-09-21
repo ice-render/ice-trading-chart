@@ -160,6 +160,62 @@ describe('createPaneStack（真副图）', () => {
     for (const chart of charts) expect(chart.destroyed).toBe(true);
   });
 
+  it('默认分隔线是 1px（主流终端的口径），且每两块 pane 之间恰有一条', async () => {
+    const stack = createPaneStack(
+      host,
+      [
+        { id: 'a', primary: true, option: priceOption },
+        {
+          id: 'b',
+          option: {
+            legend: { show: false },
+            xAxis: { type: 'category' },
+            yAxis: {},
+            series: [{ id: 's', type: 'bar', data: CANDLES.map((row) => ({ x: row.x, y: row.v })) }],
+          },
+        },
+        {
+          id: 'c',
+          option: {
+            legend: { show: false },
+            xAxis: { type: 'category' },
+            yAxis: {},
+            series: [{ id: 's2', type: 'line', data: CANDLES.map((row) => ({ x: row.x, y: row.v })) }],
+          },
+        },
+      ],
+      { height: 600 }
+    );
+    for (const chart of stack.charts) await chart.render();
+    const separators = Array.from(host.querySelectorAll('[data-pane-separator]')) as HTMLElement[];
+    expect(separators).toHaveLength(2);
+    for (const node of separators) expect(node.style.height).toBe('1px');
+    stack.destroy();
+    expect(host.querySelectorAll('[data-pane-separator]')).toHaveLength(0);
+  });
+
+  it('gap: 0 时不插分隔线（纯贴在一起）', async () => {
+    const stack = createPaneStack(
+      host,
+      [
+        { id: 'a', primary: true, option: priceOption },
+        {
+          id: 'b',
+          option: {
+            legend: { show: false },
+            xAxis: { type: 'category' },
+            yAxis: {},
+            series: [{ id: 's', type: 'bar', data: CANDLES.map((row) => ({ x: row.x, y: row.v })) }],
+          },
+        },
+      ],
+      { height: 400, gap: 0, link: false }
+    );
+    for (const chart of stack.charts) await chart.render();
+    expect(host.querySelectorAll('[data-pane-separator]')).toHaveLength(0);
+    stack.destroy();
+  });
+
   it('link: false 时不联动', async () => {
     const stack = createPaneStack(
       host,

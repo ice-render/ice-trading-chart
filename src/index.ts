@@ -6,6 +6,7 @@
  * - `./indicators` 技术指标（纯函数 + 叠加/副图 option）
  * - `./panes`      真副图（多实例 + 联动 + 横向对齐）
  * - `./drawing`    画线工具（SVG 覆盖层，按数据坐标持久化）
+ * - `./orderBook`  盘口（买卖十档，独立组件）
  * - `./volume`     成交量（同图第二轴压底）
  * - `./project`    画布内坐标投影（HTML 外壳对齐用）
  * - `./readout`    光标 → 一根 K 线的读数
@@ -35,6 +36,8 @@ export {
 } from './panes';
 export type { PaneSpec, PaneStack, PaneStackOptions } from './panes';
 export { createDrawingLayer, DRAWING_KINDS } from './drawing';
+export { createOrderBook } from './orderBook';
+export type { OrderBook, OrderBookData, OrderBookLevel, OrderBookOptions } from './orderBook';
 export type {
   Drawing,
   DrawingKind,
