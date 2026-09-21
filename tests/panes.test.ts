@@ -143,6 +143,23 @@ describe('createPaneStack（真副图）', () => {
     stack.destroy();
   });
 
+  it('setTheme：换主题后三块 pane 一起换（主题是在建栈时解析的，必须显式重设）', async () => {
+    const stack = createPaneStack(host, [{ id: 'price', primary: true, weight: 1, option: priceOption }], {
+      height: 400,
+      theme: 'dark',
+    });
+    await stack.charts[0].render();
+    const dark = stack.charts[0].norm.theme.backgroundColor;
+    stack.setTheme({ backgroundColor: '#ffffff', axisLabelColor: '#000000' });
+    await stack.charts[0].render();
+    expect(stack.charts[0].norm.theme.backgroundColor).toBe('#ffffff');
+    expect(stack.charts[0].norm.theme.axisLabelColor).toBe('#000000');
+    expect(stack.charts[0].norm.theme.backgroundColor).not.toBe(dark);
+    // 等宽字体仍然是栈的口径
+    expect(stack.charts[0].norm.theme.fontFamily).toBe(PANE_FONT_FAMILY);
+    stack.destroy();
+  });
+
   it('数值轴刻度按「轴长 ÷ 一档的最小像素」给密度（默认档数 5 会明显偏稀）', async () => {
     // 价格轴显式给 min / max 时，栈要按绘图区高度反推档数
     const ranged: TradingChartOption = {

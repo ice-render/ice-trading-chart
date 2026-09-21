@@ -138,6 +138,18 @@ describe('createOrderBook（盘口组件）', () => {
     expect(totalOf(rowsOf('bid')[2])).toBe('15.00');
   });
 
+  it('换主题：面板 / 文字变量与涨跌色一起走（显式给过的颜色不动）', () => {
+    book = createOrderBook(host, { levels: 1, theme: { panel: '#123456', text: '#abcdef', muted: '#111111', line: '#222222', up: '#00ff00', down: '#ff0000' } });
+    book.update({ asks: [{ price: 101, size: 1 }], bids: [{ price: 99, size: 1 }] });
+    const root = host.querySelector('.ice-book') as HTMLElement;
+    expect(root.style.getPropertyValue('--ice-book-text')).toBe('#abcdef');
+    expect((rowsOf('ask')[0].querySelector('.ice-book-px') as HTMLElement).style.color).toBe('rgb(255, 0, 0)');
+
+    book.setTheme({ panel: '#ffffff', text: '#000000' });
+    // 换主题立刻生效
+    expect(root.style.getPropertyValue('--ice-book-text')).toBe('#000000');
+  });
+
   it('数据没变时一次 DOM 都不写（签名去重）', () => {
     book = createOrderBook(host, { levels: 2 });
     const data = makeBook(2, 42000);

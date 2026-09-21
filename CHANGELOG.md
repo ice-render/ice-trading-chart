@@ -6,6 +6,23 @@
 
 ### 新增
 
+- **终端主题（一套 token 驱动三处外观）**：新增 `TerminalTheme` 与
+  `DARK_TERMINAL_THEME` / `LIGHT_TERMINAL_THEME` / `resolveTerminalTheme()` /
+  `terminalThemeToChartTheme()` / `applyTerminalTheme()`（`src/theme.ts`）。
+  - **图表**：`terminalThemeToChartTheme()` → `createPaneStack({ theme })` → ice-chart 的
+    `ChartTheme` → **ice-chart 的主题桥**推到 **ice-render 的引擎主题**（应用不需要自己调
+    引擎的 `setTheme`，画布底色 / 交互外壳 / 字体一起走）；
+  - **盘口**：`createOrderBook({ theme })` / `book.setTheme(theme)` —— 面板、文字、悬停底
+    写成组件根节点上的 `--ice-book-*` 变量，涨跌色取自 token；
+  - **页面外壳**：`applyTerminalTheme(theme)` 把 token 写成一组 CSS 变量
+    （`TERMINAL_THEME_VARS` 是变量名表），页面样式表只写 `var(--xxx)`。
+  - `createPaneStack` 新增 **`setTheme()`**：主题是在建栈那一刻解析的，换肤必须显式重设
+    （改 `option.theme` 不生效；重建整摞 pane 会丢缩放窗口与画线）。
+  - 示例页「显示」面板里加了**深色 / 浅色盘面**切换，演示这三处一起换。
+  回归网：`tests/theme.test.ts`、`tests/panes.test.ts` 的 `setTheme`、`tests/orderBook.test.ts`
+  的主题那条、e2e「盘面主题」。
+
+
 - **盘面观感与布局对齐主流合约交易所的盘面**（用户要求「在外观和布局方面做一次深入同步」）：
   - **布局**：顶部「行情跑马灯 + 交易对抬头（标记价 / 指数价 / 资金费率与倒计时 / 24h 高·低·量·额）」；
     三栏「图表 ·（订单簿 + 最新成交）·（下单 + 账户）」；底部「持仓 / 当前委托 / 画线记录」

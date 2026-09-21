@@ -4,6 +4,7 @@
  * 分块：
  * - `./chart`     交易图表的装配（option 补齐 + 建图）
  * - `./axisView`  数值轴的视图控制（标尺双击自适应 / 标尺滚轮缩放）
+ * - `./theme`     终端主题（一套 token 同时驱动图表 / 盘口 / 页面外壳）
  * - `./indicators` 技术指标（纯函数 + 叠加/副图 option）
  * - `./panes`      真副图（多实例 + 联动 + 横向对齐）
  * - `./drawing`    画线工具（SVG 覆盖层，按数据坐标持久化）
@@ -24,6 +25,15 @@ export {
   zoomValueAxis,
 } from './axisView';
 export type { TimeAxisPanOptions, TimeAxisZoomOptions, ValueAxisScale, ValueZoomOptions } from './axisView';
+export {
+  applyTerminalTheme,
+  resolveTerminalTheme,
+  terminalThemeToChartTheme,
+  DARK_TERMINAL_THEME,
+  LIGHT_TERMINAL_THEME,
+  TERMINAL_THEME_VARS,
+} from './theme';
+export type { TerminalTheme } from './theme';
 export {
   bollinger,
   closeSeries,

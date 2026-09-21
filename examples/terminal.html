@@ -7,6 +7,12 @@
       /* ================= 深色合约终端配色（对齐主流合约交易所的盘面） =================
          底色近黑、面板浅一档、边框极细；涨绿跌红；强调色是品牌黄（选中态 / 主按钮）。
          数字一律等宽字体，报价带千分位。 */
+      /*
+        颜色**只有一处来源**：`ICETradingChart.DARK_TERMINAL_THEME`（库里的终端主题）。
+        页面启动时 `applyTerminalTheme()` 把这些 token 写成下面这些 CSS 变量，
+        样式表里一律 `var(--xxx)`；这里的值是**没有 JS 时的回退**（保证首屏不闪白）。
+        换肤（深色 / 浅色 / 自家品牌色）只需要换一个主题对象，图表 / 盘口 / 外壳一起变。
+      */
       :root {
         --bg: #0b0e11;
         --panel: #181a20;
@@ -19,6 +25,7 @@
         --accent: #f0b90b;
         --accent-ink: #0b0e11;
         --ruler: rgba(132, 142, 156, 0.66);
+        --session-line: rgba(255, 255, 255, 0.05);
         --up: #0ecb81;
         --down: #f6465d;
         --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -200,7 +207,7 @@
       .vline { width: 0; border-left: 1px dashed var(--ruler); }
       .lastline { height: 0; border-top: 1px dashed var(--accent); }
       .session-layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
-      .session-layer i { position: absolute; width: 0; border-left: 1px solid rgba(255, 255, 255, 0.05); }
+      .session-layer i { position: absolute; width: 0; border-left: 1px solid var(--session-line); }
       .watermark {
         transform: translate(-50%, -50%); font-size: 42px; font-weight: 600; letter-spacing: 2px;
         color: rgba(234, 236, 239, 0.04); white-space: nowrap; pointer-events: none;
@@ -212,10 +219,15 @@
 
       /* 盘口 / 最新成交 */
       .book-col { gap: 0; }
-      /* 盘口按**自身高度**排（十档 + 中间价那一行），剩下的高度全给最新成交 ——
-         早先按 55%/45% 分，十档排不下就画到成交那一块上去了（实测） */
-      .book-col #order-book { flex: 0 0 auto; overflow: hidden; }
-      .trades-wrap { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+      /*
+        盘口吃掉剩下的高度（`overflow: hidden` 保证**十档排不下时被裁掉、而不是画到成交那一格上**），
+        最新成交固定占下面三分之一并给一个最小高度 —— 否则盘口按自身高度一排，成交只剩表头（实测）。
+      */
+      .book-col #order-book { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+      .trades-wrap {
+        flex: 0 0 34%; min-height: 128px; display: flex; flex-direction: column;
+        border-top: 1px solid var(--line);
+      }
       .trades-head { display: flex; align-items: center; gap: 14px; padding: 6px 10px 4px; }
       .trades-head button {
         background: none; border: 0; color: var(--muted); font-size: 13px; cursor: pointer;
@@ -702,8 +714,6 @@
         static DEA_COLOR = '#3b82f6';
         static BASE_PRICE = 42000;
         /** 盘口每侧的档数（组件默认也是 10）。 */
-        /** 图表数字用的等宽字体（和 pane 栈的默认一致，主题里显式写一遍更稳）。 */
-        static PANE_FONT = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Roboto Mono', monospace";
         static LEVELS = 10;
         static EQUITY = 100000;
 
@@ -757,6 +767,11 @@
         marginMode = 'cross';
         /** 默认**涨绿跌红**（合约盘面的通行口径），「显示」面板里可切。 */
         scheme = 'greenUp';
+        /**
+         * 盘面主题（深色 / 浅色）。**一份 token 驱动三处**：图表（经 ice-chart 的主题桥推到引擎）、
+         * 盘口组件、以及页面外壳的 CSS 变量 —— 见库里的 `src/theme.ts`。
+         */
+        terminalTheme = ICETradingChart.DARK_TERMINAL_THEME;
         indicators = { ma: true, ema: false, boll: false };
         /**
          * 图表类型：`candle` 蜡烛 / `hollow` 空心蜡烛 / `line` 折线 / `area` 面积。
@@ -893,11 +908,11 @@
         }
 
         get upColor() {
-          return this.scheme === 'redUp' ? '#f6465d' : '#0ecb81';
+          return this.scheme === 'redUp' ? this.terminalTheme.down : this.terminalTheme.up;
         }
 
         get downColor() {
-          return this.scheme === 'redUp' ? '#0ecb81' : '#f6465d';
+          return this.scheme === 'redUp' ? this.terminalTheme.up : this.terminalTheme.down;
         }
 
         /** 当前周期（内置 + 自定义都要能取到，自定义周期走 allIntervals）。 */
@@ -1493,6 +1508,8 @@
         }
 
         mount() {
+          // 先把主题写成 CSS 变量：图表 / 盘口 / 页面外壳吃的是同一份 token
+          ICETradingChart.applyTerminalTheme(this.terminalTheme);
           this.stack = ICETradingChart.createPaneStack(
             document.getElementById('panes'),
             [
@@ -1513,16 +1530,8 @@
               // 写死 540 的话，窗口一窄/字体一换（不同浏览器换行不同）图表就超出容器被裁掉，
               // 最下面那块的时间轴跑到容器外面，双击时间轴根本收不到事件（实测在 Firefox 上踩到）。
               axisLabelChars: TerminalPage.AXIS_CHARS,
-              theme: {
-                backgroundColor: '#0b0e11',
-                textColor: '#eaecef',
-                subTextColor: '#848e9c',
-                axisLineColor: '#2b3139',
-                axisLabelColor: '#848e9c',
-                splitLineColor: '#1c2126',
-                fontFamily: TerminalPage.PANE_FONT,
-                fontSize: 11,
-              },
+              // 图表主题 = 终端主题的一层映射（再经 ice-chart 的主题桥推到 ice-render 的引擎主题）
+              theme: ICETradingChart.terminalThemeToChartTheme(this.terminalTheme),
             }
           );
           const priceChart = this.stack.chartOf('price');
@@ -1544,6 +1553,7 @@
           this.mountChrome();
           this.book = ICETradingChart.createOrderBook(document.getElementById('order-book'), {
             levels: TerminalPage.LEVELS,
+            theme: this.terminalTheme,
             // 卖盘用跌色、买盘用涨色；价格与数量按合约盘面的口径格式化（千分位 + 三位小数）
             upColor: this.upColor,
             downColor: this.downColor,
@@ -1750,7 +1760,7 @@
         }
 
         onPanelClick(name, event) {
-          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-type],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-custom]') : null;
+          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-type],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-theme],[data-custom]') : null;
           if (!target) return;
           const read = (key) => target.getAttribute(key);
           const star = read('data-star');
@@ -1821,6 +1831,9 @@
             this.invalidate();
             return undefined;
           }
+          const themeKey = read('data-theme');
+          if (themeKey) return this.setTerminalTheme(themeKey);
+
           const display = read('data-display');
           if (display === 'magnet') {
             this.magnet = !this.magnet;
@@ -2040,7 +2053,11 @@
             `<div class="tb-item ${this.scheme === id ? 'active' : ''}" data-scheme="${id}"><span class="tb-mark">${this.scheme === id ? '●' : ''}</span>${label}</div>`;
           const toggle = (id, label, on) =>
             `<div class="tb-item ${on ? 'active' : ''}" data-display="${id}"><span class="tb-mark">${on ? '✓' : ''}</span>${label}</div>`;
+          const isLight = this.terminalTheme === ICETradingChart.LIGHT_TERMINAL_THEME;
           document.getElementById('panel-display').innerHTML =
+            '<div class="tb-title">盘面</div>' +
+            `<div class="tb-item ${isLight ? 'active' : ''}" data-theme="light"><span class="tb-mark">${isLight ? '●' : ''}</span>浅色盘面</div>` +
+            `<div class="tb-item ${isLight ? '' : 'active'}" data-theme="dark"><span class="tb-mark">${isLight ? '' : '●'}</span>深色盘面</div>` +
             '<div class="tb-title">涨跌配色</div>' +
             scheme('redUp', '红涨绿跌') +
             scheme('greenUp', '绿涨红跌') +
@@ -2179,6 +2196,24 @@
           // 松手可能发生在图外（甚至窗口外），挂在 window 上才不会漏
           window.addEventListener('pointerup', finish);
           window.addEventListener('pointercancel', finish);
+        }
+
+        /**
+         * 换盘面主题（深色 / 浅色）。
+         *
+         * 三处一起换：CSS 变量（页面外壳）→ 盘口组件 `setTheme` → 图表（重新求值 option 里的
+         * `theme`，经 ice-chart 的主题桥推到 ice-render 的引擎主题）。涨跌色也取自主题 token，
+         * 所以顺手 `invalidate()` 重建一次。
+         */
+        setTerminalTheme(key) {
+          this.terminalTheme = key === 'light' ? ICETradingChart.LIGHT_TERMINAL_THEME : ICETradingChart.DARK_TERMINAL_THEME;
+          ICETradingChart.applyTerminalTheme(this.terminalTheme);
+          if (this.book) this.book.setTheme(this.terminalTheme);
+          // 图表主题是在建栈那一刻解析的，换肤要显式告诉 pane 栈（它内部重新求值 option 再应用）
+          if (this.stack) this.stack.setTheme(ICETradingChart.terminalThemeToChartTheme(this.terminalTheme));
+          this.renderDisplayPanel();
+          this.invalidate();
+          this.setHint(key === 'light' ? '盘面：浅色' : '盘面：深色');
         }
 
         /**

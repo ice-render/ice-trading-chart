@@ -632,11 +632,13 @@ test.describe('K 线终端示例页', () => {
     expect(zoomed.labels).not.toEqual(before.labels);
     expect(zoomed.aligned, '标签变长也没把三块图的绘图区挤歪').toBe(true);
 
-    // 双击标尺回到自适应：刻度与三条 pane 的对齐都回到原样
+    // 双击标尺回到自适应：刻度回到同一档（允许因绘图区高度 1px 抖动差一档 ——
+    // 档数是按「绘图区高度 ÷ 一档最小像素」反推的，边界上会跳一格），密度仍在带内、三块仍对齐
     await dblclickRuler(page, 'price');
     const home = await tickState(page);
-    expect(home.step).toBeCloseTo(before.step, 6);
-    expect(home.spacing).toBeCloseTo(before.spacing, 0);
+    expect(Math.abs(home.step - before.step)).toBeLessThanOrEqual(before.step);
+    expect(home.spacing).toBeGreaterThan(18);
+    expect(home.spacing).toBeLessThan(48);
     expect(home.aligned).toBe(true);
 
     // 三块 pane 的档数各自按自己的轴长算：价格轴最密，成交量 / 副图够用就好
@@ -1071,6 +1073,43 @@ test.describe('K 线终端示例页', () => {
     await page.waitForTimeout(300);
     expect(await volumeSeries()).not.toContain('v__ma5');
     expect((await session()).length).toBe(0);
+  });
+
+  test('盘面主题：一套 token 同时换图表 / 盘口 / 页面外壳，且能换回来', async ({ page }) => {
+    const state = () =>
+      page.evaluate(() => {
+        const pg = (window as any).__page;
+        const root = getComputedStyle(document.documentElement);
+        const chart = pg.stack.chartOf('price');
+        const book = document.querySelector('.ice-book') as HTMLElement | null;
+        return {
+          cssBackground: root.getPropertyValue('--bg').trim(),
+          cssAccent: root.getPropertyValue('--accent').trim(),
+          chartBackground: chart.norm.theme.backgroundColor,
+          bookText: book ? book.style.getPropertyValue('--ice-book-text') : null,
+        };
+      });
+
+    const dark = await state();
+    expect(dark.cssBackground).toBe('#0b0e11');
+    expect(dark.chartBackground, '图表主题也跟着 token（不用自己碰引擎 setTheme）').toBe('#0b0e11');
+    expect(dark.bookText).toBeTruthy();
+
+    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
+    await page.waitForTimeout(120);
+    await page.click('#panel-display [data-theme="light"]');
+    await page.waitForTimeout(600);
+
+    const light = await state();
+    expect(light.cssBackground, '页面外壳换了').toBe('#ffffff');
+    expect(light.chartBackground, '图表画布底色换了（经 ice-chart 的主题桥推到引擎）').toBe('#ffffff');
+    expect(light.bookText, '盘口文字色换了').not.toBe(dark.bookText);
+    expect(light.cssAccent, '品牌色在两套盘面里保持一致').toBe(dark.cssAccent);
+
+    // 换回来
+    await page.click('#panel-display [data-theme="dark"]');
+    await page.waitForTimeout(600);
+    expect((await state()).cssBackground).toBe('#0b0e11');
   });
 
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {

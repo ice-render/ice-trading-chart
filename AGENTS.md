@@ -464,6 +464,29 @@ pane 栈在 `alignAxes` 里给**没写 `tickCount`** 的 y 轴补上。四条坑
 - **均量线**：量图上加 MA5 / MA10 两条线，数据跟量柱同一批 x；**首尾读不出量的点必须裁掉**
   （用 `seriesData()`）—— 折线系列会把 null 点当 0 画出一条假竖线（上游行为）。
 
+## 主题：一套 token 驱动三处（`src/theme.ts`）
+
+外观**只有一处来源**：`TerminalTheme`（[src/theme.ts]）。它同时喂给：
+
+| 去哪 | 怎么接 | 说明 |
+| --- | --- | --- |
+| **图表** | `terminalThemeToChartTheme(theme)` → `createPaneStack({ theme })` | 得到 `Partial<ChartTheme>`，再经 **ice-chart 的主题桥**（`chartThemeToEnginePatch` → `applyChartThemeToEngine`）推到 **ice-render 的引擎主题** —— 所以引擎自己画的东西（画布底色、交互外壳、字体）也跟着走，**应用侧不需要自己调引擎的 `setTheme`** |
+| **外围组件**（盘口） | `createOrderBook({ theme })` / `book.setTheme(theme)` | 面板 / 文字 / 悬停底写成组件根节点上的 CSS 变量（`--ice-book-*`），涨跌色取自 token 的 `up` / `down`（显式传 `upColor` / `downColor` 时以显式值为准） |
+| **页面外壳** | `applyTerminalTheme(theme)` | 把 token 写成一组 CSS 变量（`--bg` / `--panel` / `--up` / `--accent` …，名字表 = `TERMINAL_THEME_VARS`），页面样式表一律 `var(--xxx)` |
+
+预设：`DARK_TERMINAL_THEME`（默认）/ `LIGHT_TERMINAL_THEME`；`resolveTerminalTheme('light' | 'dark' | 片段)` 做解析。
+
+⚠️ **主题是在建栈那一刻解析的**（等宽字体、字号、配色都从它来），之后 `refresh()` 注入的还是那一份 ——
+所以换肤必须显式调 **`stack.setTheme(next)`**（它重新求值 option 再应用三块 pane）。
+只改 `option.theme` 不会生效；重建整摞 pane 会连缩放窗口和画线一起丢。
+盘口那边对应 `book.setTheme()`，页面外壳那边对应 `applyTerminalTheme()`（CSS 变量，天然不用重建）。
+
+蜡烛的涨跌色**不在图表主题里** —— 那是系列 option（`candle.upColor` / `downColor`），
+因为同一张图上不同系列可以有不同配色；页面从 token 的 `up` / `down` 取，于是换肤时蜡烛也跟着走。
+
+回归网：`tests/theme.test.ts`（预设 / 映射 / 变量名契约）、`tests/panes.test.ts` 的 `setTheme` 那条、
+`tests/orderBook.test.ts` 的主题那条、e2e「盘面主题」（CSS 变量 + 图表底色 + 盘口文字三处一起换，可换回）。
+
 ## 盘面观感与布局（对齐主流合约交易所的盘面）
 
 示例页的排面按合约交易所那套来：**深色盘面 + 顶上一排行情 + 三栏 + 底部选项卡**。

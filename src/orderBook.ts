@@ -1,3 +1,6 @@
+import { resolveTerminalTheme } from './theme';
+import type { TerminalTheme } from './theme';
+
 /**
  * 盘口（买卖十档）。
  *
@@ -40,6 +43,14 @@ export interface OrderBookOptions {
   upColor?: string;
   /** 表头三个列名，默认「价格 / 数量 / 合计」。 */
   labels?: { price?: string; size?: string; total?: string };
+  /**
+   * 终端主题（面板底 / 边框 / 文字 / 涨跌色都从它取）。
+   *
+   * 不传就用深色盘面的默认值 —— 组件自带样式，但**颜色归属主题**：
+   * 页面只要把同一份主题给（图表 / 盘口 / CSS 变量），换肤是一处改。
+   * 显式给了 `upColor` / `downColor` 时以显式值为准（优先级：选项 > 主题 > 默认）。
+   */
+  theme?: Partial<TerminalTheme>;
   /** 是否画深度条，默认 true。 */
   showDepth?: boolean;
   /** 点击某一档的回调。 */
@@ -58,6 +69,8 @@ export interface OrderBook {
   update(data: OrderBookData, options?: { mid?: number; midColor?: string }): void;
   /** 换配色（应用切涨跌色时调）。 */
   setPalette(palette: { upColor?: string; downColor?: string }): void;
+  /** 换主题（深色 / 浅色 / 自家品牌色）：面板、文字、涨跌色一起跟着走。 */
+  setTheme(theme: Partial<TerminalTheme>): void;
   /** 当前中间价（上一次 update 的结果）。 */
   mid(): number | null;
   /** 当前价差（上一次 update 的结果）。 */
@@ -68,14 +81,17 @@ export interface OrderBook {
 const STYLE_ID = 'ice-trading-order-book-style';
 
 const STYLE = `
-.ice-book { font: 11px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.ice-book {
+  font: 11px/1.7 var(--ice-book-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  color: var(--ice-book-text, #eaecef);
+}
 .ice-book-head {
   display: grid; grid-template-columns: 1fr 1fr 1.05fr; gap: 4px; padding: 0 10px 2px;
-  color: rgba(132, 142, 156, 0.9); font-size: 10px;
+  color: var(--ice-book-muted, rgba(132, 142, 156, 0.9)); font-size: 10px;
 }
 .ice-book-head span:nth-child(2), .ice-book-head span:nth-child(3) { text-align: right; }
 .ice-book-row { position: relative; display: grid; grid-template-columns: 1fr 1fr 1.05fr; gap: 4px; padding: 1px 10px; cursor: pointer; }
-.ice-book-row:hover { background: rgba(255, 255, 255, 0.04); }
+.ice-book-row:hover { background: var(--ice-book-hover, rgba(255, 255, 255, 0.04)); }
 .ice-book-depth { position: absolute; top: 1px; bottom: 1px; right: 0; z-index: 0; }
 .ice-book-px, .ice-book-sz, .ice-book-tt { position: relative; z-index: 1; }
 .ice-book-sz, .ice-book-tt { text-align: right; }
@@ -83,8 +99,8 @@ const STYLE = `
 .ice-book-tt { opacity: 0.92; }
 .ice-book-mid {
   display: flex; align-items: baseline; gap: 8px; padding: 4px 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--ice-book-line, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--ice-book-line, rgba(255, 255, 255, 0.08));
 }
 .ice-book-mid b { font-size: 17px; font-weight: 600; }
 .ice-book-mid span { font-size: 10px; opacity: 0.6; }
@@ -185,8 +201,27 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
     bidRows.push(bid);
   }
 
-  let upColor = options.upColor || '#0ecb81';
-  let downColor = options.downColor || '#f6465d';
+  let theme = resolveTerminalTheme(options.theme);
+  let upColor = options.upColor || theme.up;
+  let downColor = options.downColor || theme.down;
+
+  /**
+   * 主题 → 组件根节点上的 CSS 变量（面板底 / 边框 / 文字 / 悬停底）。
+   *
+   * 布局样式仍然是注入一次的 `<style>`（结构不变），**颜色走变量**：
+   * 换肤只要重写这几个变量，不必重建 DOM。
+   */
+  const paintTheme = () => {
+    const vars: Record<string, string> = {
+      '--ice-book-text': theme.text,
+      '--ice-book-muted': theme.muted,
+      '--ice-book-line': theme.line,
+      '--ice-book-mono': theme.monoFamily,
+      '--ice-book-hover': theme.panel2,
+    };
+    for (const key of Object.keys(vars)) root.style.setProperty(key, vars[key]);
+  };
+  paintTheme();
   let lastMid: number | null = null;
   let lastSpread: number | null = null;
   let signature = '';
@@ -264,10 +299,20 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
     signature = ''; // 强制下一次 update 重绘
   };
 
+  /** 换肤：面板 / 文字立刻变，涨跌色跟着主题走（显式给过 upColor / downColor 的不动）。 */
+  const setTheme = (next: Partial<TerminalTheme>) => {
+    theme = resolveTerminalTheme({ ...theme, ...next });
+    if (!options.upColor) upColor = theme.up;
+    if (!options.downColor) downColor = theme.down;
+    paintTheme();
+    signature = '';
+  };
+
   return {
     element: root,
     update,
     setPalette,
+    setTheme,
     mid: () => lastMid,
     spread: () => lastSpread,
     destroy: () => {

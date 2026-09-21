@@ -100,6 +100,14 @@ export interface PaneStack {
   holderOf(id: string): HTMLDivElement | null;
   /** 重新按容器尺寸排布（容器尺寸变化后调用）。 */
   resize(): void;
+  /**
+   * 换主题（深色 / 浅色 / 自定义片段），立即重画三块 pane。
+   *
+   * 为什么要有这个方法：主题是在**建栈那一刻**解析好的（等宽字体、字号、配色都从它来），
+   * 之后每次 `refresh()` 注入的还是那一份 —— 光改 `option.theme` 不会生效。
+   * 页面切换深浅色时调它（或直接重建整摞 pane，但那会把缩放窗口 / 画线一起丢掉）。
+   */
+  setTheme(theme: PaneStackOptions['theme']): void;
   /** 把每一格的 option 重新求值 + 重新注入对齐信息后应用（数据变化后调它）。 */
   refresh(applyOptions?: { animate?: boolean | 'enter' | 'update'; preserveView?: boolean }): void;
   /** 单独换某一格的 option（同样会重新注入对齐信息）。 */
@@ -253,10 +261,9 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
   const gap = options.gap === undefined ? 1 : options.gap;
   const separatorColor = options.separatorColor === undefined ? 'rgba(255, 255, 255, 0.08)' : options.separatorColor;
   const chars = options.axisLabelChars === undefined ? DEFAULT_AXIS_LABEL_CHARS : options.axisLabelChars;
-  const theme = baseTheme(options.theme);
+  let theme = baseTheme(options.theme);
   // 刻度密度的下限跟着主题字号走（字号 × 2）—— 换字号时密度不会突然变陌生
-  const fontSize = Number(theme.fontSize) > 0 ? Number(theme.fontSize) : 12;
-  const tickSpacing = 2.5 * fontSize;
+  let tickSpacing = 2.5 * (Number(theme.fontSize) > 0 ? Number(theme.fontSize) : 12);
   const dpr = resolveDpr(options.dpr);
   const host = container;
   const created: Array<{ spec: PaneSpec; holder: HTMLDivElement; canvas: HTMLCanvasElement; chart: ICEChart; current: ChartOption }> = [];
@@ -377,6 +384,16 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     syncDomains();
   };
 
+  /** 换主题：重新解析 token，再按新主题把三块 pane 重新求值 + 应用一遍。 */
+  const setTheme = (next: PaneStackOptions['theme']) => {
+    theme = baseTheme(next);
+    tickSpacing = 2.5 * (Number(theme.fontSize) > 0 ? Number(theme.fontSize) : 12);
+    for (const entry of created) {
+      applyPane(entry);
+    }
+    syncDomains();
+  };
+
   const setPaneOption = (id: string, option: ChartOption | TradingChartOption) => {
     const entry = created.find((item) => item.spec.id === id);
     if (!entry) return;
@@ -434,6 +451,7 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     },
     resize,
     refresh,
+    setTheme,
     setPaneOption,
     syncDomains,
     destroy,
