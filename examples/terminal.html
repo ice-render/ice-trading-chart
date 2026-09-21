@@ -228,7 +228,7 @@
           <span>下一根 <b id="s-next">-</b></span>
           <span>已推送 <b id="s-pushed">0</b></span>
           <span>fps <b id="s-fps">0</b></span>
-          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走</span>
+          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走 · 在右侧标尺上双击让数值轴自适应</span>
         </div>
       </div>
 
@@ -1157,6 +1157,7 @@
           this.bindToolbar();
           this.bindOrderForm();
           this.bindPointer();
+          this.bindAxisAutoFit();
           this.bindViewSync();
         }
 
@@ -1528,6 +1529,34 @@
         }
 
         /**
+         * 右侧数值标尺上双击 = **该 pane 的数值轴自适应**（主流看盘软件的手势）。
+         *
+         * 为什么需要这个手势：`interaction.pan.axes: 'xy'` 让纵向拖动成为「手动量程」，
+         * 但拖过头之后没有任何回到自动的入口 —— 按「重置」会连数据一起重采样，太重。
+         * 双击标尺把 y 交还给自动量程，**x 窗口一根不动**，K 线立刻重新铺满绘图区的高度。
+         *
+         * 判定落在**右侧标尺**上（绘图区右缘 → 画布右缘，且纵向在绘图区内）；
+         * 落在绘图区里的双击不是这个手势。三块 pane 各自认自己的标尺 —— 成交量 / MACD
+         * 上的手动量程也用同一个手势还原。
+         *
+         * 画线工具武装时这一片归画线层（与拖动平移同一条纪律），不参与。
+         */
+        bindAxisAutoFit() {
+          document.getElementById('panes').addEventListener('dblclick', (event) => {
+            if (this.drawing && this.drawing.mode()) return;
+            const hit = this.axisAt(event.clientX, event.clientY);
+            if (!hit) return;
+            event.preventDefault();
+            const chart = this.stack.chartOf(hit.pane);
+            if (!chart || !ICETradingChart.resetAutoScale(chart)) return;
+            // 量程变了 → 外壳（最新价线、右轴价签、准星横线）要按新刻度重画
+            this.chromeSig = '';
+            this.syncChrome(true);
+            this.setHint(hit.pane === 'price' ? '价格轴已自适应' : '已恢复自动量程');
+          });
+        }
+
+        /**
          * 光标：**只在按住主键的那段时间**是「抓住」的小手。
          *
          * 用户明确要求「不要一开始就把鼠标变成小手，要等按下鼠标之后再变」——
@@ -1666,6 +1695,31 @@
             if (!best || distance < best.distance) best = { pane: id, y: y - geom.top, distance };
           }
           return best ? { pane: best.pane, x, y: best.y } : null;
+        }
+
+        /**
+         * 屏幕坐标 → 「是否落在某一格的**右侧数值标尺**上」。
+         *
+         * 标尺 = 绘图区右缘到画布右缘之间的那一条（引擎的 y 轴刻度就画在里面），
+         * 纵向还要落在这一格的绘图区内 —— 时间轴标签带与 pane 之间的分隔条都不算。
+         * 不在标尺上（含落在绘图区里、落在整摞 pane 之外）返回 null。
+         */
+        axisAt(clientX, clientY) {
+          const host = document.getElementById('panes').getBoundingClientRect();
+          const x = clientX - host.left - this.chromeOrigin.x;
+          const y = clientY - host.top - this.chromeOrigin.y;
+          if (x < 0 || x > this.canvasBox.width) return null;
+          for (const id of TerminalPage.PANES) {
+            const geom = this.paneGeom[id];
+            if (!geom || y < geom.top || y > geom.top + geom.height) continue;
+            const chart = this.stack.chartOf(id);
+            const plot = chart ? ICETradingChart.plotRect(chart) : null;
+            if (!plot) return null;
+            const local = y - geom.top;
+            if (local < plot.y || local > plot.y + plot.height) return null;
+            return x >= plot.x + plot.width ? { pane: id } : null;
+          }
+          return null;
         }
 
         /** 横线价签的文字：每块 pane 的 y 轴语义不同，读数要跟着换。 */

@@ -99,6 +99,91 @@ async function dragLeft(page: Page, pixels: number) {
   await page.waitForTimeout(400);
 }
 
+/** 某一格的页面几何：容器原点（对齐到该格画布左上角）+ 该格绘图区（画布 CSS px）。 */
+async function paneGeometry(page: Page, id: string) {
+  return page.evaluate((paneId) => {
+    const pg = (window as any).__page;
+    const host = document.getElementById('panes')!.getBoundingClientRect();
+    const geom = pg.paneGeom[paneId];
+    const plot = pg.stack.chartOf(paneId).layout.plot;
+    return {
+      left: host.left + pg.chromeOrigin.x,
+      top: host.top + pg.chromeOrigin.y + geom.top,
+      plot: { x: plot.x, y: plot.y, width: plot.width, height: plot.height },
+    };
+  }, id);
+}
+
+/** 在某一格的绘图区里纵向拖 `pixels`（正数 = 往下拖 = 手动量程）。 */
+async function dragVertical(page: Page, id: string, pixels: number) {
+  const geo = await paneGeometry(page, id);
+  const x = Math.round(geo.left + geo.plot.x + geo.plot.width / 2);
+  const y = Math.round(geo.top + geo.plot.y + geo.plot.height / 2);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  const steps = 16;
+  for (let i = 1; i <= steps; i++) {
+    await page.mouse.move(x, y + (pixels * i) / steps, { steps: 1 });
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+}
+
+/** 在某一格**右侧数值标尺**上双击（标尺 = 绘图区右缘到画布右缘之间那一条）。 */
+async function dblclickRuler(page: Page, id: string) {
+  const geo = await paneGeometry(page, id);
+  await page.mouse.dblclick(
+    Math.round(geo.left + geo.plot.x + geo.plot.width + 12),
+    Math.round(geo.top + geo.plot.y + geo.plot.height / 2)
+  );
+  await page.waitForTimeout(300);
+}
+
+/** 某一格的数据域窗口。 */
+async function axisDomain(page: Page, id: string, axis: 'x' | 'y') {
+  return page.evaluate(
+    ([paneId, which]) => (window as any).__page.stack.chartOf(paneId).getDomain(which),
+    [id, axis] as [string, 'x' | 'y']
+  );
+}
+
+/**
+ * 某一格绘图区里「系列颜色」像素的纵向范围（画布 CSS px）。
+ *
+ * 这就是「K 线有没有铺满绘图区」的行为判据：量程被手动拖跑之后，K 线要么被顶出绘图区
+ * 被裁掉、要么缩成一小条，纵向范围立刻变小 —— 不去读任何内部字段。
+ */
+async function inkBox(page: Page, id: string) {
+  return page.evaluate((paneId) => {
+    const pg = (window as any).__page;
+    const chart = pg.stack.chartOf(paneId);
+    const plot = chart.layout.plot;
+    const dpr = pg.dpr || 1;
+    const ctx = chart.ice.canvasEl.getContext('2d');
+    const x0 = Math.round((plot.x + 1) * dpr);
+    const y0 = Math.round((plot.y + 1) * dpr);
+    const w = Math.max(1, Math.round((plot.width - 2) * dpr));
+    const h = Math.max(1, Math.round((plot.height - 2) * dpr));
+    const img = ctx.getImageData(x0, y0, w, h).data;
+    let top = -1;
+    let bottom = -1;
+    for (let cy = 0; cy < h; cy++) {
+      let ink = 0;
+      for (let cx = 0; cx < w; cx++) {
+        const i = (cy * w + cx) * 4;
+        const max = Math.max(img[i], img[i + 1], img[i + 2]);
+        const min = Math.min(img[i], img[i + 1], img[i + 2]);
+        if (max > 90 && max - min > 60) ink += 1;
+      }
+      if (ink > 0) {
+        if (top < 0) top = cy;
+        bottom = cy;
+      }
+    }
+    return { top: top / dpr, bottom: bottom / dpr, height: (bottom - top + 1) / dpr };
+  }, id);
+}
+
 /** 在主图上滚 `ticks` 次滚轮（`delta < 0` = 放大）。 */
 async function wheel(page: Page, ticks: number, delta: number) {
   const at = await paneCenter(page);
@@ -242,6 +327,59 @@ test.describe('K 线终端示例页', () => {
     expect(home.panes.price.last).toBe(home.newestKey);
     expect(home.panes.price.n).toBeGreaterThan(50);
     expect(home.visibleReal).toBe(home.panes.price.n);
+  });
+
+  test('右侧标尺上双击：数值轴自适应（x 窗口一根不动）', async ({ page }) => {
+    // 暂停推流：像素判据要的是「同一份数据」，最新一根的高低价还在长会干扰比较
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+
+    const startY = await axisDomain(page, 'price', 'y');
+    const startX = await axisDomain(page, 'price', 'x');
+    const startInk = await inkBox(page, 'price');
+
+    // ① 纵向拖过 = 手动量程：K 线不再铺满绘图区
+    await dragVertical(page, 'price', 160);
+    const draggedY = await axisDomain(page, 'price', 'y');
+    const draggedInk = await inkBox(page, 'price');
+    expect(draggedY[0]).not.toBe(startY[0]);
+    expect(draggedInk.height, '拖过之后 K 线不该还铺满').toBeLessThan(startInk.height - 20);
+
+    // ② 在右侧标尺上双击 = 自适应：量程回到「按可见窗口算出来的那一段」
+    await dblclickRuler(page, 'price');
+    const auto = await page.evaluate(() => (window as any).__page.visiblePriceRange());
+    const fittedY = await axisDomain(page, 'price', 'y');
+    expect(fittedY[0], '下端要盖住可见窗口的最低影线').toBeLessThanOrEqual(auto.min + 1e-6);
+    expect(fittedY[1], '上端要盖住可见窗口的最高影线').toBeGreaterThanOrEqual(auto.max - 1e-6);
+    // 可见窗口没变（纵向拖不改 x），所以量程应当**原样**回到拖之前那一段
+    expect(fittedY, '量程回到拖之前的自适应量程').toEqual(startY);
+    expect(await axisDomain(page, 'price', 'x'), '自适应只管 y，x 窗口一根不动').toEqual(startX);
+    expect((await inkBox(page, 'price')).height, 'K 线又铺回原来的高度').toBeCloseTo(startInk.height, 0);
+    expect(
+      await page.evaluate(() => document.getElementById('s-hint')!.textContent),
+      '给出了手势反馈'
+    ).toContain('自适应');
+
+    // ③ 落在绘图区里的双击不是这个手势（手动量程要原样保留）
+    await dragVertical(page, 'price', 120);
+    const manualY = await axisDomain(page, 'price', 'y');
+    const geo = await paneGeometry(page, 'price');
+    await page.mouse.dblclick(
+      Math.round(geo.left + geo.plot.x + geo.plot.width / 2),
+      Math.round(geo.top + geo.plot.y + geo.plot.height / 2)
+    );
+    await page.waitForTimeout(300);
+    expect(await axisDomain(page, 'price', 'y')).toEqual(manualY);
+  });
+
+  test('双击标尺不该把「跟盘」踢掉（量程调整不外抛 pan / zoom 事件）', async ({ page }) => {
+    const before = await snapshot(page);
+    await dblclickRuler(page, 'price');
+    const after = await snapshot(page);
+    expect(after.follow).toBe(true);
+    expect(after.panes.price.first).toBe(before.panes.price.first);
+    expect(after.panes.price.last).toBe(before.newestKey);
+    expect(await page.evaluate(() => document.getElementById('btn-latest')!.style.display)).toBe('none');
   });
 
   test('缩放有上下限：最密 0.5px/根、最粗半幅一根；且不许凭空长出未来空位', async ({ page }) => {
