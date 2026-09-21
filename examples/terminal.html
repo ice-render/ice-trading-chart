@@ -228,7 +228,7 @@
           <span>下一根 <b id="s-next">-</b></span>
           <span>已推送 <b id="s-pushed">0</b></span>
           <span>fps <b id="s-fps">0</b></span>
-          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走 · 在右侧标尺上双击让数值轴自适应</span>
+          <span id="s-hint" style="margin-left:auto">滚轮缩放任一 pane，其余两块跟着走 · 标尺：滚轮缩放、双击自适应 · 时间轴双击回到最新</span>
         </div>
       </div>
 
@@ -419,6 +419,8 @@
         static PREFS_KEY = 'ice-trading-terminal-prefs';
         static TICK_MS = 600;
         static TICKS_PER_BAR = 3;
+        /** 标尺上滚轮一格的价格轴倍率（与引擎 `interaction.zoom.wheelFactor` 的默认值同口径）。 */
+        static ZOOM_FACTOR = 1.2;
         static CHART_HEIGHT = 540;
         static AXIS_CHARS = 8;
         static BASE_PRICE = 42000;
@@ -487,6 +489,15 @@
         cursor = '';
         /** 平移 / 缩放的量程重算（rAF 节流句柄）。 */
         viewFrame = 0;
+        /**
+         * 视窗（x）的指纹 = 「页面认得的那个视窗」。
+         *
+         * 用来区分「用户动过视窗」与「只是动了数值轴」：纵向拖动、标尺滚轮缩放都会抛
+         * `pan:change` / `zoom:change`，但**时间窗口一根没动** —— 那种情况不该把跟盘踢掉
+         * （主流看盘软件里调价格轴不影响时间轴的跟盘）。页面自己摆窗口的地方
+         * （`pinToLatest` / `invalidate`）负责把它刷新成当前值。
+         */
+        viewKey = '';
         /** `visibleRange()` 的缓存（key = 总量 + 视窗两端 + 周期）。 */
         rangeKey = '';
         rangeValue = null;
@@ -970,10 +981,14 @@
           const next = [drawn[drawn.length - n].x, drawn[drawn.length - 1].x];
           const chart = this.stack.chartOf('price');
           const current = chart.getDomain('x');
-          if (current && current.length >= 2 && current[0] === next[0] && current[current.length - 1] === next[1]) return;
+          if (current && current.length >= 2 && current[0] === next[0] && current[current.length - 1] === next[1]) {
+            this.noteViewKey();
+            return;
+          }
           // silent：这是页面自己钉的窗口，不必再往外抛 pan/zoom 事件把量程重算又跑一遍
           chart.silent(() => chart.setDomain('x', next, 'api'));
           this.stack.syncDomains();
+          this.noteViewKey();
         }
 
         /** 所有可选周期（内置 + 自定义）。 */
@@ -1157,7 +1172,7 @@
           this.bindToolbar();
           this.bindOrderForm();
           this.bindPointer();
-          this.bindAxisAutoFit();
+          this.bindAxisGestures();
           this.bindViewSync();
         }
 
@@ -1529,31 +1544,57 @@
         }
 
         /**
-         * 右侧数值标尺上双击 = **该 pane 的数值轴自适应**（主流看盘软件的手势）。
+         * **标尺上的手势**（这条带子归页面，引擎不认 —— 它的交互一律要求指针落在绘图区内）。
          *
-         * 为什么需要这个手势：`interaction.pan.axes: 'xy'` 让纵向拖动成为「手动量程」，
-         * 但拖过头之后没有任何回到自动的入口 —— 按「重置」会连数据一起重采样，太重。
-         * 双击标尺把 y 交还给自动量程，**x 窗口一根不动**，K 线立刻重新铺满绘图区的高度。
+         * | 手势 | 作用 | 为什么需要 |
+         * | --- | --- | --- |
+         * | 右侧数值标尺上**双击** | 该 pane 的数值轴自适应 | `pan.axes: 'xy'` 让纵向拖动成为「手动量程」，拖过头之后唯一的出口是「重置」，而那个会连数据一起重采样 |
+         * | 右侧数值标尺上**滚轮** | 缩放该 pane 的数值轴（指针为锚点） | 滚轮在绘图区里是**时间轴**缩放，数值轴的缩放要有自己的落点，主流看盘软件就是在标尺上滚 |
+         * | 底部**时间轴**上双击 | 重置时间轴：回到默认根数 + 跟盘 | 缩放到一根 K 占半屏之后，要有一步回到默认视野的入口 |
          *
-         * 判定落在**右侧标尺**上（绘图区右缘 → 画布右缘，且纵向在绘图区内）；
-         * 落在绘图区里的双击不是这个手势。三块 pane 各自认自己的标尺 —— 成交量 / MACD
-         * 上的手动量程也用同一个手势还原。
+         * 判据都是「落在哪一条带子上」：右侧标尺 = 绘图区右缘 → 画布右缘且纵向在绘图区内；
+         * 时间轴 = 最下面那块绘图区下缘 → 画布下缘。落在绘图区里的双击 / 滚轮都不是这些手势
+         * （滚轮照旧归引擎）。三块 pane 各自认自己的标尺。
          *
          * 画线工具武装时这一片归画线层（与拖动平移同一条纪律），不参与。
          */
-        bindAxisAutoFit() {
-          document.getElementById('panes').addEventListener('dblclick', (event) => {
-            if (this.drawing && this.drawing.mode()) return;
-            const hit = this.axisAt(event.clientX, event.clientY);
-            if (!hit) return;
+        bindAxisGestures() {
+          const host = document.getElementById('panes');
+          host.addEventListener('dblclick', (event) => this.onAxisDblclick(event));
+          // 标尺上的滚轮必须 preventDefault（否则整页跟着滚），所以这里不能是 passive
+          host.addEventListener('wheel', (event) => this.onAxisWheel(event), { passive: false });
+        }
+
+        /** 右侧标尺双击 = 数值轴自适应；底部时间轴双击 = 重置时间轴。 */
+        onAxisDblclick(event) {
+          if (this.drawing && this.drawing.mode()) return;
+          const value = this.valueAxisAt(event.clientX, event.clientY);
+          if (value) {
             event.preventDefault();
-            const chart = this.stack.chartOf(hit.pane);
+            const chart = this.stack.chartOf(value.pane);
             if (!chart || !ICETradingChart.resetAutoScale(chart)) return;
             // 量程变了 → 外壳（最新价线、右轴价签、准星横线）要按新刻度重画
             this.chromeSig = '';
             this.syncChrome(true);
-            this.setHint(hit.pane === 'price' ? '价格轴已自适应' : '已恢复自动量程');
-          });
+            return this.setHint(value.pane === 'price' ? '价格轴已自适应' : '已恢复自动量程');
+          }
+          if (!this.timeAxisAt(event.clientX, event.clientY)) return;
+          event.preventDefault();
+          this.resumeFollow('时间轴已重置（回到最新）');
+        }
+
+        /** 右侧标尺滚轮 = 缩放该 pane 的数值轴（指针指着的那个价格停在原地）。 */
+        onAxisWheel(event) {
+          if (this.drawing && this.drawing.mode()) return;
+          const hit = this.valueAxisAt(event.clientX, event.clientY);
+          if (!hit) return;
+          event.preventDefault();
+          const chart = this.stack.chartOf(hit.pane);
+          if (!chart) return;
+          const factor = event.deltaY < 0 ? TerminalPage.ZOOM_FACTOR : 1 / TerminalPage.ZOOM_FACTOR;
+          if (!ICETradingChart.zoomValueAxis(chart, { factor, anchorY: hit.y })) return;
+          this.chromeSig = '';
+          this.syncChrome(true);
         }
 
         /**
@@ -1582,18 +1623,40 @@
          */
         bindViewSync() {
           for (const chart of this.stack.charts) {
-            chart.on('pan:change', () => {
-              // 用户自己动过视窗 → 立刻退出跟盘（否则下一根 K 出来就把他的视窗拽回去）
-              this.setFollow(false);
-              this.syncZoomRightCap();
-              this.scheduleViewRefresh();
-            });
-            chart.on('zoom:change', () => {
-              this.setFollow(false);
-              this.anchorRightOnZoom();
-              this.scheduleViewRefresh();
-            });
+            // 用户自己动过视窗 → 立刻退出跟盘（否则下一根 K 出来就把他的视窗拽回去）
+            chart.on('pan:change', () => this.onViewChange('pan'));
+            chart.on('zoom:change', () => this.onViewChange('zoom'));
           }
+        }
+
+        /** 视窗指纹：只看两端与根数 —— 补历史 / 裁历史不会改变它（类目 key 是稳定的）。 */
+        xKey(domain) {
+          return domain && domain.length >= 2 ? `${domain.length}|${domain[0]}|${domain[domain.length - 1]}` : '';
+        }
+
+        /** 记下「页面自己摆出来的视窗」（跟盘钉窗口、重置之后）。 */
+        noteViewKey() {
+          const chart = this.stack ? this.stack.chartOf('price') : null;
+          if (chart) this.viewKey = this.xKey(chart.getDomain('x'));
+        }
+
+        /**
+         * 视窗变化（三块 pane 联动，只认主图发出的那一份）。
+         *
+         * ⚠️ **只看 x**：纵向拖动与标尺滚轮也会抛 `pan:change` / `zoom:change`，但它们不动
+         * 时间窗口 —— 那时跟盘不该退出（用户只是调了下价格轴，K 线还得继续跟着最新一根走）。
+         * 顺带这也顺手去重：一次联动三个 pane 各抛一次事件，只有与当前视窗不一致的那一次
+         * 会走到下面（其余两次在指纹上就被挡掉），量程不会重算三遍。
+         */
+        onViewChange(kind) {
+          const chart = this.stack ? this.stack.chartOf('price') : null;
+          if (!chart) return;
+          if (this.xKey(chart.getDomain('x')) === this.viewKey) return;
+          if (kind === 'zoom') this.anchorRightOnZoom();
+          else this.syncZoomRightCap();
+          this.setFollow(false);
+          this.noteViewKey();
+          this.scheduleViewRefresh();
         }
 
         /** 记住「本轮视窗到过的最右位置」（缩放不许越过它，见 `anchorRightOnZoom`）。 */
@@ -1645,8 +1708,8 @@
           if (hint) this.setHint(hint);
         }
 
-        /** 回到跟盘：重新按「最后 count 根」开窗，并恢复自动量程。 */
-        resumeFollow() {
+        /** 回到跟盘：重新按「最后 count 根」开窗，并恢复自动量程（`hint` 由调用方给文案）。 */
+        resumeFollow(hint) {
           this.follow = true;
           this.zoomRightCap = null;
           document.getElementById('btn-latest').style.display = 'none';
@@ -1660,7 +1723,7 @@
           this.stack.refresh({ animate: false, preserveView: true });
           this.paintAll();
           this.syncChrome(true);
-          this.setHint('已回到最新');
+          this.setHint(hint || '已回到最新');
         }
 
         scheduleViewRefresh() {
@@ -1703,8 +1766,9 @@
          * 标尺 = 绘图区右缘到画布右缘之间的那一条（引擎的 y 轴刻度就画在里面），
          * 纵向还要落在这一格的绘图区内 —— 时间轴标签带与 pane 之间的分隔条都不算。
          * 不在标尺上（含落在绘图区里、落在整摞 pane 之外）返回 null。
+         * `y` 是**这一格画布内**的 y（`yToPrice` / 缩放锚点要的就是它）。
          */
-        axisAt(clientX, clientY) {
+        valueAxisAt(clientX, clientY) {
           const host = document.getElementById('panes').getBoundingClientRect();
           const x = clientX - host.left - this.chromeOrigin.x;
           const y = clientY - host.top - this.chromeOrigin.y;
@@ -1717,9 +1781,29 @@
             if (!plot) return null;
             const local = y - geom.top;
             if (local < plot.y || local > plot.y + plot.height) return null;
-            return x >= plot.x + plot.width ? { pane: id } : null;
+            return x >= plot.x + plot.width ? { pane: id, y: local } : null;
           }
           return null;
+        }
+
+        /**
+         * 屏幕坐标 → 「是否落在**时间轴**上」（最下面那块绘图区下缘 → 画布下缘）。
+         *
+         * 横向不挑：时间轴是整条带子，和主流看盘软件一致（也不用躲右侧标尺 ——
+         * 两者的纵向范围本来就不重叠）。
+         */
+        timeAxisAt(clientX, clientY) {
+          const host = document.getElementById('panes').getBoundingClientRect();
+          const x = clientX - host.left - this.chromeOrigin.x;
+          const y = clientY - host.top - this.chromeOrigin.y;
+          if (x < 0 || x > this.canvasBox.width) return null;
+          const id = TerminalPage.PANES[TerminalPage.PANES.length - 1];
+          const geom = this.paneGeom[id];
+          if (!geom || y < geom.top || y > geom.top + geom.height) return null;
+          const chart = this.stack.chartOf(id);
+          const plot = chart ? ICETradingChart.plotRect(chart) : null;
+          if (!plot) return null;
+          return y - geom.top > plot.y + plot.height ? { pane: id } : null;
         }
 
         /** 横线价签的文字：每块 pane 的 y 轴语义不同，读数要跟着换。 */
@@ -1744,6 +1828,8 @@
           this.readoutSig = '';
           this.stack.refresh({ animate: false, preserveView: !resetView });
           if (this.follow) this.pinToLatest();
+          // 页面自己摆完窗口后记一笔：否则下一次「只动了数值轴」的事件会被误判成动过视窗
+          this.noteViewKey();
           this.paintAll();
           this.syncChrome(true);
         }
@@ -1957,6 +2043,15 @@
 
         paintLastPrice(plot, last, lastY) {
           const color = last.c >= last.o ? this.upColor : this.downColor;
+          /**
+           * 最新价被推出视野时（纵向拖得远、或在标尺上把价格轴缩得很小都会发生）：
+           * **虚线不画** —— 它挂在整个 pane 栈的覆盖层上，画出去就落到下面那两块图上了；
+           * **价签钉在价格轴的上/下沿**，用户还能看到最新价、也知道它在视野的哪一侧
+           * （主流看盘软件就是这么处理的）。
+           */
+          const visible = lastY >= plot.y && lastY <= plot.y + plot.height;
+          const pinned = Math.min(Math.max(lastY, plot.y), plot.y + plot.height);
+          this.chrome.lastline.style.display = visible ? 'block' : 'none';
           this.chrome.lastline.style.left = `${plot.x}px`;
           this.chrome.lastline.style.width = `${plot.width}px`;
           this.chrome.lastline.style.top = `${lastY}px`;
@@ -1965,7 +2060,7 @@
           const tag = this.chrome.ltag;
           tag.style.left = `${box.left}px`;
           tag.style.width = `${box.width}px`;
-          tag.style.top = `${lastY - 9}px`;
+          tag.style.top = `${pinned - 9}px`;
           tag.style.background = color;
           tag.textContent = TerminalPage.price(last.c);
         }
@@ -2006,12 +2101,14 @@
             this.chrome.vline.style.height = `${ruler.height}px`;
           }
 
-          // ---- 横线 + 价签：只在指针落在那一块的绘图区里时才画（落在轴区上就不该有价签）----
+          // ---- 横线 + 价签：只在指针**落在这一块的绘图区里**时才画 ----
+          // 两个方向都要判：指针停在右侧标尺上（x 出了绘图区）时，y 那一读数是「悬空的」——
+          // 画出来会让用户以为标尺也是绘图区的一部分（标尺上的手势是缩放/自适应，不是读数）。
           let value = null;
           if (show) {
             const local = ICETradingChart.yToPrice(paneChart, spot.y, 0);
             const inPlotY = spot.y >= panePlot.y && spot.y <= panePlot.y + panePlot.height;
-            if (local !== null && inPlotY) value = local;
+            if (local !== null && inPlotX && inPlotY) value = local;
           }
           const showH = value !== null;
           this.chrome.hline.style.display = showH ? 'block' : 'none';

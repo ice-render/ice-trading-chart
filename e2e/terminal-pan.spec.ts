@@ -139,6 +139,23 @@ async function dblclickRuler(page: Page, id: string) {
   await page.waitForTimeout(300);
 }
 
+/** 在某一格**右侧数值标尺**上滚一格（`delta < 0` = 放大）。 */
+async function wheelRuler(page: Page, id: string, delta: number) {
+  const geo = await paneGeometry(page, id);
+  await page.mouse.move(Math.round(geo.left + geo.plot.x + geo.plot.width + 12), Math.round(geo.top + geo.plot.y + geo.plot.height / 2));
+  await page.mouse.wheel(0, delta);
+  await page.waitForTimeout(200);
+}
+
+/** 最下面那条**时间轴**上的一点（绘图区下缘往下的标签带里）。 */
+async function timeAxisPoint(page: Page) {
+  const geo = await paneGeometry(page, 'indicator');
+  return {
+    x: Math.round(geo.left + geo.plot.x + geo.plot.width / 2),
+    y: Math.round(geo.top + geo.plot.y + geo.plot.height + 4),
+  };
+}
+
 /** 某一格的数据域窗口。 */
 async function axisDomain(page: Page, id: string, axis: 'x' | 'y') {
   return page.evaluate(
@@ -380,6 +397,114 @@ test.describe('K 线终端示例页', () => {
     expect(after.panes.price.first).toBe(before.panes.price.first);
     expect(after.panes.price.last).toBe(before.newestKey);
     expect(await page.evaluate(() => document.getElementById('btn-latest')!.style.display)).toBe('none');
+  });
+
+  test('标尺上滚轮：缩放数值轴；绘图区里的滚轮仍是时间轴缩放', async ({ page }) => {
+    const beforeX = await axisDomain(page, 'price', 'x');
+    const beforeY = await axisDomain(page, 'price', 'y');
+    const beforeSpan = Number(beforeY[1]) - Number(beforeY[0]);
+
+    // ① 标尺上往上滚 = 放大数值轴：窗口变窄，时间窗口一根不动
+    await wheelRuler(page, 'price', -120);
+    const zoomed = await axisDomain(page, 'price', 'y');
+    expect(Number(zoomed[1]) - Number(zoomed[0]), '滚上去要把价格轴放大').toBeLessThan(beforeSpan);
+    expect(await axisDomain(page, 'price', 'x'), '标尺上的滚轮不该动时间窗口').toEqual(beforeX);
+    // 指针停在标尺上时不该出现「准星横线 + 价签」—— 那是绘图区里的读数，标尺上不是
+    expect(
+      await page.evaluate(() => getComputedStyle(document.querySelector('.hline')!).display),
+      '标尺上不该出现悬空的准星横线'
+    ).toBe('none');
+
+    // ② 绘图区里的滚轮照旧只动 x（引擎那条路径没被抢走），**手动量程原样保留**
+    await wheel(page, 3, -120);
+    expect(await axisDomain(page, 'price', 'x'), '绘图区滚轮照旧缩放时间轴').not.toEqual(beforeX);
+    expect(await axisDomain(page, 'price', 'y'), '绘图区滚轮不该动数值轴').toEqual(zoomed);
+
+    // ③ 双击标尺把量程还回去 → y 回到「自动」：盖住当前可见窗口那一段
+    await dblclickRuler(page, 'price');
+    const auto = await page.evaluate(() => (window as any).__page.visiblePriceRange());
+    const fitted = await axisDomain(page, 'price', 'y');
+    expect(fitted[0]).toBeLessThanOrEqual(auto.min + 1e-6);
+    expect(fitted[1]).toBeGreaterThanOrEqual(auto.max - 1e-6);
+  });
+
+  test('底部时间轴上双击：重置时间轴（默认根数 + 回到最新）', async ({ page }) => {
+    const start = await snapshot(page);
+    await wheel(page, 8, -120);
+    const zoomed = await snapshot(page);
+    expect(zoomed.panes.price.n, '先得真的放大过').toBeLessThan(start.panes.price.n);
+
+    const at = await timeAxisPoint(page);
+    await page.mouse.dblclick(at.x, at.y);
+    await page.waitForTimeout(500);
+    const home = await snapshot(page);
+    expect(home.follow, '时间轴重置 = 回到跟盘').toBe(true);
+    expect(home.panes.price.last, '右端贴住最新一根').toBe(home.newestKey);
+    expect(home.panes.price.n, '回到默认根数').toBe(start.panes.price.n);
+    expect(
+      await page.evaluate(() => document.getElementById('s-hint')!.textContent),
+      '给出了手势反馈'
+    ).toContain('时间轴');
+  });
+
+  test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {
+    await dragVertical(page, 'price', 160);
+    const after = await snapshot(page);
+    expect(after.follow, '纵向拖不改时间窗口，跟盘不该退出').toBe(true);
+    expect(after.panes.price.last, '窗口还贴在最新一根上').toBe(after.newestKey);
+    expect(after.visibleReal, '可见窗口里全是真实 K').toBe(after.panes.price.n);
+
+    // 数值轴缩放同理：窗口窄了、但时间轴还是跟着最新一根走
+    await wheelRuler(page, 'price', -120);
+    const zoomed = await snapshot(page);
+    expect(zoomed.follow).toBe(true);
+    expect(zoomed.panes.price.last).toBe(zoomed.newestKey);
+  });
+
+  test('最新价被推出视野时：虚线不画，价签钉在价格轴的上/下沿', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    // 锚在**离最新价更远的那一端**：连着放大之后，最新价必定被挤出绘图区
+    const plan = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const chart = pg.stack.chartOf('price');
+      const range = pg.visiblePriceRange();
+      const last = pg.candles[pg.candles.length - 1].c;
+      const anchorPrice = last - range.min >= range.max - last ? range.min : range.max;
+      return { y: ICETradingChart.priceToY(chart, anchorPrice, 0), last, min: range.min, max: range.max };
+    });
+    const geo = await paneGeometry(page, 'price');
+    await page.mouse.move(Math.round(geo.left + geo.plot.x + geo.plot.width + 12), Math.round(geo.top + plan.y));
+    for (let i = 0; i < 12; i++) {
+      await page.mouse.wheel(0, -120);
+      await page.waitForTimeout(40);
+    }
+    await page.waitForTimeout(250);
+
+    const state = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const chart = pg.stack.chartOf('price');
+      const plot = chart.layout.plot;
+      const last = pg.candles[pg.candles.length - 1];
+      const line = document.querySelector('.lastline') as HTMLElement;
+      const tag = document.querySelector('.tag.last') as HTMLElement;
+      return {
+        plot: { y: plot.y, height: plot.height },
+        priceY: ICETradingChart.priceToY(chart, last.c, 0),
+        lineShown: getComputedStyle(line).display !== 'none',
+        tagShown: getComputedStyle(tag).display !== 'none',
+        tagCenter: parseFloat(tag.style.top) + tag.offsetHeight / 2,
+      };
+    });
+    expect(
+      state.priceY < state.plot.y || state.priceY > state.plot.y + state.plot.height,
+      '先确认最新价真的在视野之外'
+    ).toBe(true);
+    expect(state.lineShown, '虚线不该画到别的 pane 上').toBe(false);
+    expect(state.tagShown, '价签要留在价格轴上').toBe(true);
+    // 价签以「钉住的那个 y」为中心，所以半个标签可能压在绘图区边上 —— 但必须留在**这一格**里
+    expect(state.tagCenter).toBeGreaterThanOrEqual(state.plot.y - 2);
+    expect(state.tagCenter).toBeLessThanOrEqual(state.plot.y + state.plot.height + 2);
   });
 
   test('缩放有上下限：最密 0.5px/根、最粗半幅一根；且不许凭空长出未来空位', async ({ page }) => {

@@ -194,7 +194,7 @@ book.setPalette({ upColor, downColor });                              // 换配�
 | `createOhlcTooltipFormatter({ labels?, seriesOption?, volumeSeriesId? })` | OHLC（+量）提示框 formatter |
 | `createOhlcReadout(chart, { seriesId?, volume? })` | 光标 / 数据 → 一根 K 线的读数（抬头用） |
 | `plotRect` / `priceToY` / `yToPrice` / `categoryToX` / `xToCategoryIndex` | 画布内坐标投影（HTML 外壳对齐用） |
-| `resetAutoScale(chart)` | 数值轴自适应：清掉纵向拖拽留下的手动 y 窗口（**x 窗口不动**），右侧标尺双击手势的落点 |
+| `resetAutoScale(chart)` / `zoomValueAxis(chart, { factor, anchorY })` | 数值轴的视图控制：自适应（清掉手动 y 窗口，**x 窗口不动**）/ 以指针为锚点缩放。右侧标尺「双击 / 滚轮」两个手势的落点 |
 | `formatPrice` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化 |
 | `CandlestickSeries` / `resolveCandleStyle` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与配色 |
 | `createPaneStack(container, specs, options)` | 真副图：多实例 + 联动 + 横向对齐 |
@@ -234,8 +234,9 @@ npm run build && npx http-server . -p 8102 -c-1
 | 顶部行情条 | 最新价 / 涨跌幅 / 高低 / 量 / 资金费率结算倒计时 / 周期切换（1m~1D）/ 涨跌配色切换 |
 | 中间图表 | `createPaneStack` 三块真副图（价格 / 成交量 / MACD 或 RSI）、`createOverlaySeries` 均线、`createDrawingLayer` 画线、`createOhlcReadout` 抬头、`project.ts` 投影（最新价线 / 右轴价签 / 十字光标两侧标签） |
 | 拖动平移 | K 线区域可拖动（**横纵都能拖**，纵向拖即手动量程）；绘图区内光标是「可抓」的小手、拖动中变「抓住」；用户拖过之后**图表不再自动向右延伸**，并亮出「回到最新」；往左是**无限画布**（按需补历史，内存里的历史与交给图表的渲染窗口分开，开销恒定） |
-| 数值轴自适应 | 在 K 线右侧的**数值标尺上双击** = 该 pane 的量程退回自适应（`resetAutoScale`）：纵向拖过头之后 K 线被挤出绘图区，双击立刻重新铺满，**x 窗口一根不动**；三块 pane 各认自己的标尺 |
+| 标尺手势 | 右侧**数值标尺**：**双击** = 该 pane 的量程退回自适应（`resetAutoScale`，纵向拖过头之后 K 线被挤出绘图区，双击立刻重新铺满、**x 窗口一根不动**）、**滚轮** = 缩放该 pane 的数值轴（`zoomValueAxis`，指针指着的价格停在原地）；底部**时间轴双击** = 重置时间轴（默认根数 + 回到最新）。三块 pane 各认自己的标尺；只动数值轴**不算**动过时间窗口，跟盘不受影响 |
 | 十字准星 | 两条线都由页面画、**自由跟随指针**（竖线贯穿整摞 pane，是一把时间标尺）；横线只画在**指针所在的那一块**里、读数按那一块的量纲（成交量 pane 上读到的是成交量）；右轴价签 + 底部时间签；抬头实时跟随 |
+| 图表外壳的两条边界 | 最新价被推出视野时：虚线不画、价签钉在价格轴的上/下沿（不会压到下面的副图上）；指针停在标尺上时不出准星横线（横线的读数只属于绘图区） |
 | 图表顶部工具条 | 常显的收藏周期（一键切换）+ 四组下拉：**周期**（分组列表 / 星标收藏 / 自定义周期）、**指标**（主图叠加多选 + 副图单选）、**画线**、**显示**（涨跌配色 / 阳线空心） |
 | 图表右侧盘口 | `createOrderBook` 组件（每侧 10 档、深度条、点价填单） |
 | 右上工具栏 | 暂停 / 继续（停行情推流）、重置（重新采样） |

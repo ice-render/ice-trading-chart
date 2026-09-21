@@ -3,7 +3,7 @@
  *
  * 分块：
  * - `./chart`     交易图表的装配（option 补齐 + 建图）
- * - `./autoScale` 数值轴自适应（清掉纵向拖拽留下的手动 y 窗口）
+ * - `./axisView`  数值轴的视图控制（标尺双击自适应 / 标尺滚轮缩放）
  * - `./indicators` 技术指标（纯函数 + 叠加/副图 option）
  * - `./panes`      真副图（多实例 + 联动 + 横向对齐）
  * - `./drawing`    画线工具（SVG 覆盖层，按数据坐标持久化）
@@ -15,7 +15,8 @@
 export { createTradingChart, toTradingOption } from './chart';
 export type { TradingChartExtras } from './chart';
 export { computePriceRange, DEFAULT_PRICE_PADDING } from './axisRange';
-export { resetAutoScale } from './autoScale';
+export { resetAutoScale, zoomValueAxis } from './axisView';
+export type { ValueZoomOptions } from './axisView';
 export {
   bollinger,
   closeSeries,
