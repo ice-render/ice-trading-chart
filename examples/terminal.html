@@ -142,8 +142,14 @@
       .ohlc .sym { color: var(--text); font-weight: 600; }
       .ohlc .kv { color: var(--muted); }
       .ohlc .kv b { font-weight: 500; color: var(--dim); }
-      /* 横线由页面画（自由跟随指针），颜色与引擎竖线一致，见 TerminalPage.RULER_COLOR */
+      /*
+        十字准星的两条线都由页面画（自由跟随指针），见 TerminalPage.RULER_COLOR。
+        两条线用同一种虚线边框，节奏天然一致 —— 之前竖线是 canvas 的 setLineDash([3,3])、
+        横线是 CSS 边框，两者的虚线节奏其实不一样。
+      */
       .hline { height: 0; border-top: 1px dashed var(--ruler); }
+      /* 竖线贯穿整摞 pane：一条元素从最上面那块绘图区的顶画到最后一块绘图区的底 */
+      .vline { width: 0; border-left: 1px dashed var(--ruler); }
       .lastline { height: 0; border-top: 1px dashed var(--accent); }
       .tag { padding: 2px 5px; border-radius: 2px; font-size: 11px; text-align: center; overflow: hidden; white-space: nowrap; }
       .tag.price { background: rgba(138, 151, 166, 0.92); color: #0b0f16; }
@@ -345,14 +351,18 @@
          */
         static RULER_COLOR = 'rgba(138, 151, 166, 0.72)';
         /**
-         * 三块 pane 共用的准星配置：**只画竖线**（`axis: 'x'`），横线交给页面覆盖层。
+         * 引擎自带的准星**整体关掉**，两条线都由页面覆盖层画。
          *
-         * 为什么横线不让引擎画：引擎的横线位置取的是**悬停那一根 K 的收盘价像素**
-         * （吸附式），而主流看盘软件默认是自由跟随指针、价签显示指针所在的价格。
-         * 竖线则正相反 —— 吸附到类目中心才好读，也和底部时间签一一对应。
-         * 引擎的 `showAxisLabel` 也关掉：两侧 chip 由页面画，文字更清晰、位置也能自己控。
+         * 原因是引擎的准星**吸附到柱心**：实测慢速横移 61 步（每步 1px）时，
+         * 目标位置只变了 9 个值、竖线 60 步里 53 步位移为 0，剩下 7 步一次跳 8px ——
+         * 表现就是「鼠标在动、线一动不动，攒够了跳一格」，也就是用户说的「卡卡的」。
+         * 横线本来就是页面画的、1:1 跟手，两者一对比更明显。
+         *
+         * 页面画的前提是三块 pane 的绘图区 **x 范围完全相同**（`plot.x` / `plot.width` 一致，
+         * 由 pane 栈的等宽对齐保证），所以一个 x 就能贯穿整摞图。
+         * 引擎的悬停状态照旧保留 —— 抬头读数、准星的读数都还靠它。
          */
-        static CROSSHAIR = { show: true, axis: 'x', showAxisLabel: false };
+        static CROSSHAIR = { show: false };
         /**
          * 三块 pane 共用的交互配置：**关掉悬停标记**（`hover.mark: false`）。
          *
@@ -418,6 +428,8 @@
         readout = null;
         chrome = null;
         canvasEl = null;
+        /** 设备像素比（对齐用；引擎按它渲染，页面画的线也得对齐到同一套设备像素）。 */
+        dpr = 1;
         running = true;
         timer = null;
         intervalKey = '5m';
@@ -811,6 +823,7 @@
           );
           const priceChart = this.stack.chartOf('price');
           this.canvasEl = priceChart.ice.canvasEl;
+          this.dpr = priceChart.ice.dpr || 1;
           // 建图那一刻窗口是**全量**（360 根），这里同一帧内钉成最后 120 根；
           // 浏览器在本轮任务结束后才绘制，所以用户看不到中间那帧。
           this.pinToLatest();
@@ -854,6 +867,7 @@
             '<span class="kv" data-k="time">-</span>' +
             '</div>' +
             '<div class="hline"></div>' +
+            '<div class="vline"></div>' +
             '<div class="lastline"></div>' +
             '<div class="tag price">-</div>' +
             '<div class="tag last">-</div>' +
@@ -868,6 +882,7 @@
             fields,
             ohlc: layer.querySelector('.ohlc'),
             hline: layer.querySelector('.hline'),
+            vline: layer.querySelector('.vline'),
             lastline: layer.querySelector('.lastline'),
             ptag: layer.querySelector('.tag.price'),
             ltag: layer.querySelector('.tag.last'),
@@ -1602,7 +1617,7 @@
           const reading = this.readout.read();
           const last = this.candles[this.candles.length - 1];
           const lastY = ICETradingChart.priceToY(priceChart, last.c, 0);
-          const spot = this.pointer ? `${this.pointer.pane}@${this.pointer.y}` : '-';
+          const spot = this.pointer ? `${this.pointer.pane}@${this.pointer.x},${this.pointer.y}` : '-';
           const signature = [
             plot.x, plot.y, plot.width, plot.height,
             reading ? reading.index : -1, last.c, spot, this.scheme, this.intervalKey,
@@ -1632,31 +1647,54 @@
           tag.textContent = TerminalPage.price(last.c);
         }
 
+        /** 把坐标对齐到**设备像素**（1 个 CSS 像素在 dpr=2 上要落到整数设备像素上才不发虚）。 */
+        snapDevice(value) {
+          const dpr = this.dpr || 1;
+          return Math.round(value * dpr) / dpr;
+        }
+
         /**
-         * 十字准星。三部分各归其位（主流看盘软件就是这个分工）：
+         * 十字准星。两条线都由页面画，**自由跟随指针**（不做任何吸附）。
          *
-         * - **竖线**由引擎画，落在悬停那一根的类目中心；联动会让它在三块 pane 上同步出现。
-         * - **横线 + 右轴价签**画在**指针所在的那一块**里，读数用那一块自己的 y 轴 ——
-         *   所以在成交量 pane 上读到的是成交量，不是价格。
-         * - **时间签**贴在**最下面那块**的时间轴上（时间标尺在整摞图的最下方）。
+         * - **竖线**在指针的 x 上，从最上面那块绘图区的顶一直画到最后一块的底 ——
+         *   一条线就是「时间标尺」。三块 pane 的绘图区 x 范围完全相同（等宽对齐保证），
+         *   所以一个 x 就能贯穿整摞图。
+         * - **横线 + 右轴价签**在指针的 y 上，但只画在**指针所在的那一块**里，
+         *   读数用那一块自己的 y 轴 —— 所以在成交量 pane 上读到的是成交量。
+         * - **时间签**贴在最下面那块的时间轴上，跟着指针 x 走；文字是**最近那一根**的时间
+         *   （自由跟随 + 就近读数，这与主流看盘软件的默认准星一致）。
+         *
+         * 为什么不让引擎画竖线：引擎的准星吸附柱心，慢速横移时线会「一动不动然后跳一格」。
          */
         paintPointer(priceChart, plot, lastY) {
           const spot = this.pointer;
           const paneChart = spot ? this.stack.chartOf(spot.pane) : null;
           const panePlot = paneChart ? ICETradingChart.plotRect(paneChart) : null;
           const geom = spot ? this.paneGeom[spot.pane] : null;
-          // 横线只在指针落在那一块的绘图区里时才画（落在轴区上就不该有价签）
-          let value = null;
-          if (spot && paneChart && panePlot && geom) {
-            const local = ICETradingChart.yToPrice(paneChart, spot.y, 0);
-            const inPlot = spot.y >= panePlot.y && spot.y <= panePlot.y + panePlot.height;
-            if (local !== null && inPlot) value = local;
+          const show = !!(spot && paneChart && panePlot && geom);
+
+          // ---- 竖线：只看 x 在不在绘图区内，纵向上贯穿整摞 pane ----
+          const inPlotX = show && spot.x >= panePlot.x && spot.x <= panePlot.x + panePlot.width;
+          const ruler = this.rulerSpan();
+          this.chrome.vline.style.display = inPlotX && ruler ? 'block' : 'none';
+          if (inPlotX && ruler) {
+            this.chrome.vline.style.left = `${this.snapDevice(spot.x)}px`;
+            this.chrome.vline.style.top = `${ruler.top}px`;
+            this.chrome.vline.style.height = `${ruler.height}px`;
           }
-          const show = value !== null;
-          this.chrome.hline.style.display = show ? 'block' : 'none';
-          this.chrome.ptag.style.display = show ? 'block' : 'none';
-          let pointerTop = null;
+
+          // ---- 横线 + 价签：只在指针落在那一块的绘图区里时才画（落在轴区上就不该有价签）----
+          let value = null;
           if (show) {
+            const local = ICETradingChart.yToPrice(paneChart, spot.y, 0);
+            const inPlotY = spot.y >= panePlot.y && spot.y <= panePlot.y + panePlot.height;
+            if (local !== null && inPlotY) value = local;
+          }
+          const showH = value !== null;
+          this.chrome.hline.style.display = showH ? 'block' : 'none';
+          this.chrome.ptag.style.display = showH ? 'block' : 'none';
+          let pointerTop = null;
+          if (showH) {
             pointerTop = geom.top + spot.y;
             const box = this.tagBox(panePlot);
             this.chrome.hline.style.left = `${panePlot.x}px`;
@@ -1673,14 +1711,13 @@
           const collide = pointerTop !== null && Math.abs(pointerTop - lastY) < this.tagHeight + 1;
           this.chrome.ltag.style.display = collide ? 'none' : 'block';
 
-          const hoverChart = (spot && this.stack.chartOf(spot.pane)) || priceChart;
-          const hovered = hoverChart && hoverChart.controller && hoverChart.controller.hover;
+          // ---- 时间签：贴底部时间轴，跟指针 x 走，文字取最近那一根 ----
           const reading = this.readout.read();
-          const x = hovered && reading ? ICETradingChart.categoryToX(priceChart, reading.xValue) : null;
           const bottomId = TerminalPage.PANES[TerminalPage.PANES.length - 1];
-          const bottomPlot = this.stack.chartOf(bottomId) ? ICETradingChart.plotRect(this.stack.chartOf(bottomId)) : null;
+          const bottomChart = this.stack.chartOf(bottomId);
+          const bottomPlot = bottomChart ? ICETradingChart.plotRect(bottomChart) : null;
           const bottomGeom = this.paneGeom[bottomId];
-          if (x !== null && bottomPlot && bottomGeom) {
+          if (inPlotX && reading && bottomPlot && bottomGeom) {
             const chip = this.chrome.xtag;
             chip.style.display = 'block';
             const text = this.displayLabel(reading.xValue);
@@ -1692,12 +1729,30 @@
             }
             // 左右两端要收进来，否则标签会溢出绘图区
             const half = this.xtagWidth / 2;
-            const left = Math.min(Math.max(x, bottomPlot.x + half), bottomPlot.x + bottomPlot.width - half);
-            chip.style.left = `${left}px`;
+            const left = Math.min(Math.max(spot.x, bottomPlot.x + half), bottomPlot.x + bottomPlot.width - half);
+            chip.style.left = `${this.snapDevice(left)}px`;
             chip.style.top = `${bottomGeom.top + bottomPlot.y + bottomPlot.height + 3}px`;
           } else {
             this.chrome.xtag.style.display = 'none';
           }
+        }
+
+        /** 竖线贯穿的范围：最上面那块绘图区的顶 → 最后一块绘图区的底（覆盖层坐标系）。 */
+        rulerSpan() {
+          const ids = TerminalPage.PANES;
+          const first = ids[0];
+          const last = ids[ids.length - 1];
+          const firstGeom = this.paneGeom[first];
+          const lastGeom = this.paneGeom[last];
+          const firstChart = this.stack ? this.stack.chartOf(first) : null;
+          const lastChart = this.stack ? this.stack.chartOf(last) : null;
+          if (!firstGeom || !lastGeom || !firstChart || !lastChart) return null;
+          const firstPlot = ICETradingChart.plotRect(firstChart);
+          const lastPlot = ICETradingChart.plotRect(lastChart);
+          if (!firstPlot || !lastPlot) return null;
+          const top = firstGeom.top + firstPlot.y;
+          const bottom = lastGeom.top + lastPlot.y + lastPlot.height;
+          return bottom > top ? { top, height: bottom - top } : null;
         }
 
         /** 右侧价签的位置与宽度：贴着绘图区右边缘，但不越出画布。 */
