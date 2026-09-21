@@ -1,3 +1,5 @@
+import { resolveTerminalMessages } from './messages';
+import type { TerminalMessages } from './messages';
 import { resolveTerminalTheme } from './theme';
 import type { TerminalTheme } from './theme';
 
@@ -41,8 +43,10 @@ export interface OrderBookOptions {
   downColor?: string;
   /** **涨色**（买盘用）。 */
   upColor?: string;
-  /** 表头三个列名，默认「价格 / 数量 / 合计」。 */
+  /** 表头三个列名（优先级：`labels` > `messages.orderBook` > 默认「价格 / 数量 / 合计」）。 */
   labels?: { price?: string; size?: string; total?: string };
+  /** 文案目录（列名从它取，'zh' / 'en' 预设或自定义片段）。 */
+  messages?: Partial<TerminalMessages> | 'zh' | 'en';
   /**
    * 终端主题（面板底 / 边框 / 文字 / 涨跌色都从它取）。
    *
@@ -71,6 +75,15 @@ export interface OrderBook {
   setPalette(palette: { upColor?: string; downColor?: string }): void;
   /** 换主题（深色 / 浅色 / 自家品牌色）：面板、文字、涨跌色一起跟着走。 */
   setTheme(theme: Partial<TerminalTheme>): void;
+  /**
+   * 换文案（表头三列）：换语言的入口，只改文字、不重建结构。
+   *
+   * 第二个参数是显式的列名（带单位那种，例如 `价格 (USDT)`）—— 优先级仍然高于目录。
+   */
+  setMessages(
+    messages?: Partial<TerminalMessages> | 'zh' | 'en',
+    labels?: { price?: string; size?: string; total?: string }
+  ): void;
   /** 当前中间价（上一次 update 的结果）。 */
   mid(): number | null;
   /** 当前价差（上一次 update 的结果）。 */
@@ -132,6 +145,11 @@ function defaultSizeFormat(value: number): string {
   return Number.isFinite(value) ? value.toFixed(2) : '-';
 }
 
+/** 表头三个列名（优先级：显式 labels > 文案目录 > 默认中文）。 */
+function pickLabels(messages?: Partial<TerminalMessages> | 'zh' | 'en', labels?: { price?: string; size?: string; total?: string }) {
+  return { ...resolveTerminalMessages(messages).orderBook, ...(labels || {}) };
+}
+
 function createRow(side: 'ask' | 'bid', onPick: (price: number, side: 'ask' | 'bid') => void): Row {
   const root = document.createElement('div');
   root.className = 'ice-book-row';
@@ -169,12 +187,19 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
   const sizeFormat = options.sizeFormat || defaultSizeFormat;
   const pick = options.onPickPrice || (() => undefined);
 
-  const text = { price: '价格', size: '数量', total: '合计', ...(options.labels || {}) };
+  let text = pickLabels(options.messages, options.labels);
   const root = document.createElement('div');
   root.className = 'ice-book';
   const head = document.createElement('div');
   head.className = 'ice-book-head';
-  head.innerHTML = `<span>${text.price}</span><span>${text.size}</span><span>${text.total}</span>`;
+  const headCells = [document.createElement('span'), document.createElement('span'), document.createElement('span')];
+  for (const cell of headCells) head.appendChild(cell);
+  const paintHead = () => {
+    headCells[0].textContent = text.price;
+    headCells[1].textContent = text.size;
+    headCells[2].textContent = text.total;
+  };
+  paintHead();
   const askSide = document.createElement('div');
   askSide.className = 'ice-book-side';
   askSide.dataset.side = 'ask';
@@ -299,6 +324,15 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
     signature = ''; // 强制下一次 update 重绘
   };
 
+  /** 换文案：只重写表头三个格（换语言用）。 */
+  const setMessages = (
+    next?: Partial<TerminalMessages> | 'zh' | 'en',
+    labels?: { price?: string; size?: string; total?: string }
+  ) => {
+    text = pickLabels(next === undefined ? options.messages : next, labels === undefined ? options.labels : labels);
+    paintHead();
+  };
+
   /** 换肤：面板 / 文字立刻变，涨跌色跟着主题走（显式给过 upColor / downColor 的不动）。 */
   const setTheme = (next: Partial<TerminalTheme>) => {
     theme = resolveTerminalTheme({ ...theme, ...next });
@@ -313,6 +347,7 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
     update,
     setPalette,
     setTheme,
+    setMessages,
     mid: () => lastMid,
     spread: () => lastSpread,
     destroy: () => {

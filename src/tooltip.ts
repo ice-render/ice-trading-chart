@@ -1,5 +1,7 @@
 import type { TooltipParams } from '@damoqiongqiu/ice-chart';
 import { formatPrice, formatVolume } from './format';
+import { DEFAULT_NUMBER_FORMAT, DEFAULT_VOLUME_FORMAT, resolveTerminalMessages } from './messages';
+import type { TerminalMessages, TerminalNumberFormat, TerminalVolumeFormat } from './messages';
 import { readOhlc } from './ohlc';
 import type { CandleFieldOptions } from './types';
 
@@ -34,6 +36,12 @@ export interface OhlcTooltipOptions {
   volumeSeriesId?: string;
   /** 四个价的小数位（不给就按 `formatPrice` 的老口径：最多 6 位、去尾随 0）。 */
   pricePrecision?: number;
+  /** 文案目录（行名从它取；给了 `labels` 时以 `labels` 为准）。 */
+  messages?: Partial<TerminalMessages> | 'zh' | 'en';
+  /** 数字格式化（默认千分位 + 固定小数位；要按 locale 走就传 `createIntlNumberFormat('de-DE')`）。 */
+  numberFormat?: TerminalNumberFormat;
+  /** 成交量格式化（默认 K / M / B 缩写）。 */
+  volumeFormat?: TerminalVolumeFormat;
 }
 
 /**
@@ -47,9 +55,13 @@ export interface OhlcTooltipOptions {
  * 的格式化器（`ICEChart.formatAxisValue`），成交量会被当成价格打出来。
  */
 export function createOhlcTooltipFormatter(options: OhlcTooltipOptions = {}) {
-  const text = { ...DEFAULT_CANDLE_LABELS, ...(options.labels || {}) };
+  const messages = resolveTerminalMessages(options.messages);
+  // 行名优先级：显式 labels > 目录 > 内置
+  const text = { ...DEFAULT_CANDLE_LABELS, ...messages.tooltip, ...(options.labels || {}) } as Required<CandleLabels>;
   const seriesOption = options.seriesOption || {};
   const precision = options.pricePrecision;
+  const numberFormat = options.numberFormat || DEFAULT_NUMBER_FORMAT;
+  const volumeFormat = options.volumeFormat || DEFAULT_VOLUME_FORMAT;
   return function ohlcFormatter(
     params: TooltipParams
   ): { rows: Array<{ name: string; value: string; color: string }> } | undefined {
@@ -60,16 +72,16 @@ export function createOhlcTooltipFormatter(options: OhlcTooltipOptions = {}) {
     if (!ohlc) return undefined;
     const color = hit.color;
     const rows = [
-      { name: text.open, value: formatPrice(ohlc[0], precision), color },
-      { name: text.high, value: formatPrice(ohlc[3], precision), color },
-      { name: text.low, value: formatPrice(ohlc[2], precision), color },
-      { name: text.close, value: formatPrice(ohlc[1], precision), color },
+      { name: text.open, value: numberFormat(ohlc[0], precision), color },
+      { name: text.high, value: numberFormat(ohlc[3], precision), color },
+      { name: text.low, value: numberFormat(ohlc[2], precision), color },
+      { name: text.close, value: numberFormat(ohlc[1], precision), color },
     ];
     if (options.volumeSeriesId) {
       const volumeItem = items.find((item) => item.seriesId === options.volumeSeriesId);
       const volume = volumeItem ? Number(volumeItem.value) : NaN;
       if (volumeItem && isFinite(volume)) {
-        rows.push({ name: text.volume, value: formatVolume(volume), color: volumeItem.color });
+        rows.push({ name: text.volume, value: volumeFormat(volume), color: volumeItem.color });
       }
     }
     return { rows };

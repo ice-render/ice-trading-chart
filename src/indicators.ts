@@ -1,6 +1,8 @@
 import type { SeriesOption } from '@damoqiongqiu/ice-chart';
 import { readOhlc } from './ohlc';
 import { resolveCandleStyle } from './series/CandlestickSeries';
+import { resolveTerminalMessages } from './messages';
+import type { TerminalMessages } from './messages';
 import type { TradingSeriesOption } from './types';
 
 /**
@@ -216,6 +218,8 @@ export interface OverlaySpec {
   lineWidth?: number;
   /** 均线配色（按 MA、EMA 依次取），不给就用内置色板。 */
   palette?: string[];
+  /** 文案目录（序列名从它取，图例可见）。 */
+  messages?: Partial<TerminalMessages> | 'zh' | 'en';
 }
 
 /**
@@ -249,17 +253,20 @@ export function createOverlaySeries(
   };
 
   const palette = spec.palette && spec.palette.length ? spec.palette : ['#f5a524', '#3b82f6', '#a78bfa', '#22c55e', '#ec4899'];
+  // 序列名走文案目录：图例开着时用户看到的就是这几个名字
+  const messages = resolveTerminalMessages(spec.messages);
   (spec.ma || []).forEach((period, i) => {
-    push(`${candles.id}__ma${period}`, `MA${period}`, sma(closes, period), palette[i % palette.length]);
+    push(`${candles.id}__ma${period}`, messages.indicators.ma(period), sma(closes, period), palette[i % palette.length]);
   });
   (spec.emaPeriods || []).forEach((period, i) => {
-    push(`${candles.id}__ema${period}`, `EMA${period}`, ema(closes, period), palette[(i + 2) % palette.length], true);
+    push(`${candles.id}__ema${period}`, messages.indicators.ema(period), ema(closes, period), palette[(i + 2) % palette.length], true);
   });
   if (spec.boll) {
-    const band = bollinger(closes, spec.boll.period || 20, spec.boll.multiplier || 2);
-    push(`${candles.id}__boll-mid`, 'BOLL', band.middle, '#94a3b8', true);
-    push(`${candles.id}__boll-up`, 'UP', band.upper, 'rgba(148,163,184,0.75)');
-    push(`${candles.id}__boll-low`, 'LOW', band.lower, 'rgba(148,163,184,0.75)');
+    const period = spec.boll.period || 20;
+    const band = bollinger(closes, period, spec.boll.multiplier || 2);
+    push(`${candles.id}__boll-mid`, messages.indicators.boll(period), band.middle, '#94a3b8', true);
+    push(`${candles.id}__boll-up`, `${messages.indicators.boll(period)}+`, band.upper, 'rgba(148,163,184,0.75)');
+    push(`${candles.id}__boll-low`, `${messages.indicators.boll(period)}-`, band.lower, 'rgba(148,163,184,0.75)');
   }
   return out;
 }
@@ -267,13 +274,22 @@ export function createOverlaySeries(
 /** MACD pane 的 option 片段：柱 + DIF + DEA，柱按正负上色。 */
 export function createMacdPaneOption(
   candles: TradingSeriesOption | undefined,
-  spec: { fast?: number; slow?: number; signal?: number; upColor?: string; downColor?: string } = {}
+  spec: {
+    fast?: number;
+    slow?: number;
+    signal?: number;
+    upColor?: string;
+    downColor?: string;
+    /** 文案目录（MACD / DIF / DEA 三个序列名从它取）。 */
+    messages?: Partial<TerminalMessages> | 'zh' | 'en';
+  } = {}
 ): { series: SeriesOption[] } {
   const style = resolveCandleStyle(candles);
   const up = spec.upColor || style.upColor;
   const down = spec.downColor || style.downColor;
   const closes = closeSeries(candles);
   const result = macd(closes, spec.fast || 12, spec.slow || 26, spec.signal || 9);
+  const messages = resolveTerminalMessages(spec.messages);
   const xs = xSeries(candles);
   const histogram = xs.map((x, i) => {
     const value = result.histogram[i];
@@ -284,14 +300,14 @@ export function createMacdPaneOption(
       {
         id: `${candles?.id || 'k'}__macd-hist`,
         type: 'bar',
-        name: 'MACD',
+        name: messages.indicators.macd,
         barWidth: 0.42,
         data: histogram as any[],
       } as SeriesOption,
       {
         id: `${candles?.id || 'k'}__macd-dif`,
         type: 'line',
-        name: 'DIF',
+        name: messages.indicators.dif,
         lineWidth: 1.1,
         color: '#f5a524',
         data: seriesData(candles, result.dif) as any[],
@@ -299,7 +315,7 @@ export function createMacdPaneOption(
       {
         id: `${candles?.id || 'k'}__macd-dea`,
         type: 'line',
-        name: 'DEA',
+        name: messages.indicators.dea,
         lineWidth: 1.1,
         color: '#3b82f6',
         data: seriesData(candles, result.dea) as any[],
@@ -311,7 +327,12 @@ export function createMacdPaneOption(
 /** RSI pane 的 option 片段：一条 RSI + 30 / 50 / 70 三条参考线（用标注画）。 */
 export function createRsiPaneOption(
   candles: TradingSeriesOption | undefined,
-  spec: { period?: number; color?: string } = {}
+  spec: {
+    period?: number;
+    color?: string;
+    /** 文案目录（RSI 序列名从它取）。 */
+    messages?: Partial<TerminalMessages> | 'zh' | 'en';
+  } = {}
 ): { series: SeriesOption[]; annotation: { lines: Array<Record<string, unknown>> } } {
   const closes = closeSeries(candles);
   const values = rsi(closes, spec.period || 14);
@@ -327,7 +348,7 @@ export function createRsiPaneOption(
       {
         id: `${candles?.id || 'k'}__rsi`,
         type: 'line',
-        name: `RSI${spec.period || 14}`,
+        name: resolveTerminalMessages(spec.messages).indicators.rsi(spec.period || 14),
         lineWidth: 1.3,
         color: spec.color || '#a78bfa',
         data: seriesData(candles, values) as any[],
@@ -341,7 +362,10 @@ export function createRsiPaneOption(
  * 指标 pane 的固定 y 轴范围（让副图不随数据抖动）。
  * RSI 天生 0~100；MACD 需要按数据算对称的上下界。
  */
-export function macdRange(candles: TradingSeriesOption | undefined, spec: { fast?: number; slow?: number; signal?: number } = {}) {
+export function macdRange(
+  candles: TradingSeriesOption | undefined,
+  spec: { fast?: number; slow?: number; signal?: number; messages?: Partial<TerminalMessages> | 'zh' | 'en' } = {}
+) {
   const closes = closeSeries(candles);
   const result = macd(closes, spec.fast || 12, spec.slow || 26, spec.signal || 9);
   let peak = 0;

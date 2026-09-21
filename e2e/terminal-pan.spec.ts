@@ -1112,6 +1112,55 @@ test.describe('K 线终端示例页', () => {
     expect((await state()).cssBackground).toBe('#0b0e11');
   });
 
+  test('i18n：换语言后「库渲染的文案」与「页面自己的文案」一起换，且能换回来', async ({ page }) => {
+    const state = () =>
+      page.evaluate(() => ({
+        lang: (window as any).__page.lang,
+        // 库渲染的：盘口表头（目录 + 单位）
+        bookHead: Array.from(document.querySelectorAll('.ice-book-head span')).map((node) => node.textContent),
+        // 库渲染的：抬头那五个行名来自库的文案目录
+        ohlcOpen: document.querySelector('[data-ohlc-label="open"]')!.textContent,
+        // 页面自己的：静态标签 / 按钮 / 表格头 / 动态拼的档数
+        mark: document.querySelector('[data-i18n="top.mark"]')!.textContent,
+        buy: document.getElementById('o-buy')!.textContent,
+        positionsTab: document.querySelector('[data-i18n="tab.positions"]')!.textContent,
+        levels: document.getElementById('b-levels')!.textContent,
+        drawTitle: document.querySelector('.draw-tool')!.getAttribute('title'),
+        intervalLabel: (window as any).__page.intervalLabel('5m'),
+      }));
+
+    const zh = await state();
+    expect(zh.bookHead).toEqual(['价格 (USDT)', '数量 (SYN)', '合计 (SYN)']);
+    expect(zh.ohlcOpen).toBe('开');
+    expect(zh.mark).toBe('标记价格');
+    expect(zh.buy).toBe('买入 / 做多');
+    expect(zh.levels).toBe('10 档');
+    expect(zh.drawTitle).toBe('趋势线');
+    expect(zh.intervalLabel).toBe('5 分钟');
+
+    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
+    await page.waitForTimeout(120);
+    await page.click('#panel-display [data-lang="en"]');
+    await page.waitForTimeout(600);
+
+    const en = await state();
+    expect(en.lang).toBe('en');
+    expect(en.bookHead, '库：盘口表头').toEqual(['Price (USDT)', 'Size (SYN)', 'Total (SYN)']);
+    expect(en.ohlcOpen, '库：抬头行名').toBe('Open');
+    expect(en.mark, '页面：静态标签').toBe('Mark Price');
+    expect(en.buy).toBe('Buy / Long');
+    expect(en.positionsTab).toBe('Positions');
+    expect(en.levels, '页面：动态拼的档数').toBe('10 levels');
+    expect(en.drawTitle).toBe('Trend line');
+    expect(en.intervalLabel).toBe('5m');
+
+    // 换回中文
+    await page.click('#panel-display [data-lang="zh"]');
+    await page.waitForTimeout(600);
+    expect((await state()).bookHead).toEqual(['价格 (USDT)', '数量 (SYN)', '合计 (SYN)']);
+    expect((await state()).mark).toBe('标记价格');
+  });
+
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {
     await dragVertical(page, 'price', 160);
     const after = await snapshot(page);

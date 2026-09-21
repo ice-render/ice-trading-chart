@@ -186,9 +186,28 @@ describe('createOverlaySeries（主图叠加）', () => {
     expect(series[0].data.map((row: any) => row.x)).toEqual(['D3', 'D4']);
   });
 
-  it('布林带出三条线', () => {
+  it('布林带出三条线（名字走文案目录，默认 BOLL(3) / + / -）', () => {
     const series = createOverlaySeries(CANDLES, { boll: { period: 3 } }) as any[];
-    expect(series.map((item) => item.name)).toEqual(['BOLL', 'UP', 'LOW']);
+    expect(series.map((item) => item.name)).toEqual(['BOLL(3)', 'BOLL(3)+', 'BOLL(3)-']);
+    const en = createOverlaySeries(CANDLES, { boll: { period: 3 }, messages: 'en' }) as any[];
+    expect(en.map((item) => item.name)).toEqual(['BOLL(3)', 'BOLL(3)+', 'BOLL(3)-']);
+  });
+
+  it('序列名可本地化（MA / EMA / MACD / RSI 走文案目录）', () => {
+    const custom = createOverlaySeries(CANDLES, {
+      ma: [7],
+      emaPeriods: [12],
+      messages: { indicators: { ma: (p) => `均线${p}`, ema: (p) => `指数${p}` } },
+    }) as any[];
+    expect(custom.map((item) => item.name)).toEqual(['均线7', '指数12']);
+
+    const macd = createMacdPaneOption(CANDLES, {
+      messages: { indicators: { macd: '异同移动平均', dif: '快线', dea: '慢线' } },
+    } as any);
+    expect((macd.series as any[]).map((item) => item.name)).toEqual(['异同移动平均', '快线', '慢线']);
+
+    const rsiPane = createRsiPaneOption(CANDLES, { period: 6, messages: { indicators: { rsi: (p) => `强弱${p}` } } });
+    expect((rsiPane.series as any[])[0].name).toBe('强弱6');
   });
 
   it('没有 K 线时返回空数组', () => {

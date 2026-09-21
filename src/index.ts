@@ -5,6 +5,7 @@
  * - `./chart`     交易图表的装配（option 补齐 + 建图）
  * - `./axisView`  数值轴的视图控制（标尺双击自适应 / 标尺滚轮缩放）
  * - `./theme`     终端主题（一套 token 同时驱动图表 / 盘口 / 页面外壳）
+ * - `./messages`  文案目录 + 数字格式化（i18n 的接入点）
  * - `./indicators` 技术指标（纯函数 + 叠加/副图 option）
  * - `./panes`      真副图（多实例 + 联动 + 横向对齐）
  * - `./drawing`    画线工具（SVG 覆盖层，按数据坐标持久化）
@@ -34,6 +35,16 @@ export {
   TERMINAL_THEME_VARS,
 } from './theme';
 export type { TerminalTheme } from './theme';
+export {
+  createIntlNumberFormat,
+  resolveTerminalMessages,
+  DEFAULT_NUMBER_FORMAT,
+  DEFAULT_TERMINAL_MESSAGES,
+  DEFAULT_VOLUME_FORMAT,
+  EN_TERMINAL_MESSAGES,
+  ZH_TERMINAL_MESSAGES,
+} from './messages';
+export type { TerminalMessages, TerminalNumberFormat, TerminalVolumeFormat } from './messages';
 export {
   bollinger,
   closeSeries,

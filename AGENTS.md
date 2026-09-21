@@ -331,6 +331,31 @@ option 里的 `interaction.zoom`，默认 0.05 / 1），**锚点处的价格纹�
 - 指针停在右侧标尺上时**不出准星横线**：横线的读数只在「指针落在这一块的绘图区里」才有意义
   （此前只判了纵向，于是悬停标尺会画出一条悬空的横线 + 价签）。
 
+## i18n：库只负责「库渲染的文案」，应用负责自己的
+
+**库自己会渲染东西**（提示框四价、盘口表头、指标序列名），所以「文案」必须能被注入 ——
+但不能把应用界面上的字也塞进库。分界线：
+
+| 谁渲染 | 文案从哪来 |
+| --- | --- |
+| **库**：OHLC 提示框、盘口表头、指标序列名（图例可见） | `TerminalMessages`（`src/messages.ts`）：`ZH_TERMINAL_MESSAGES` / `EN_TERMINAL_MESSAGES` 预设 + `resolveTerminalMessages('en' \| 片段)`；入口是 `createTradingChart(…, { messages })` / `createOrderBook({ messages })` / `createOverlaySeries(…, { messages })` / `createMacdPaneOption(…, { messages })` |
+| **数字与日期** | `TerminalNumberFormat`：`createTradingChart(…, { numberFormat: createIntlNumberFormat('de-DE') })`（价格轴刻度 + 提示框），成交量另给 `volumeFormat`；日期是坐标轴 `formatter` 的事（应用自己的本地化函数） |
+| **应用界面**（抬头、面板、表单、表格、提示行） | 应用自己的目录 —— 示例页演示了姿势：`PAGE_MESSAGES.zh/en` + `data-i18n` / `data-i18n-title` 属性 + JS 里动态拼的文案走 `t(key, params)`（`applyI18n()` 一次性刷） |
+
+三条纪律：
+
+- **目录分组深合并**：只覆盖 `tooltip.open` 不会把同组其余字段清空（`resolveTerminalMessages`）。
+- **显式参数优先**：`labels`（盘口列名）/ `priceLabels`（提示框行名）仍然压过目录 —— 需要「目录 + 单位」
+  这种组合时（示例页的 `价格 (USDT)`）就用显式参数，换语言时再重算一遍（`book.setMessages(messages, labels)`）。
+- ⚠️ **换语言不是「重建整摞 pane」**：文案与数字格式是 option 的一部分，改完 `invalidate()` 让 option
+  重新求值即可；盘口用 `book.setMessages(...)`（只改表头文字，不重建结构）。
+
+示例页「显示」面板里可切**中文 / English**，一次把三处都换掉（库的表头与抬头行名、页面的静态标签与
+动态文案、以及周期显示名）。演示页**没有**做 i18n 的部分是：下拉面板里的选项文字与 `setHint()`
+的动态提示（那是应用自己的业务文案，接法与静态标签完全一样）。
+
+回归网：`tests/messages.test.ts`（目录 / 合并 / 数字格式 / 提示框 / 价格轴 / 盘口）、e2e「i18n」。
+
 ## 时间标签：类目 key 要「稳」，显示要「跟窗口变」
 
 类目轴按字符串去重，**key 必须全局唯一**。载入 3 倍历史后跨度会跨天，所以

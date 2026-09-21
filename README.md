@@ -206,6 +206,8 @@ book.setPalette({ upColor, downColor });                              // 换配�
 | `createOrderBook(container, options)` | 盘口组件（买卖十档，自带样式与深度条）；`theme` / `setTheme()` 吃终端主题 |
 | `DARK_TERMINAL_THEME` / `LIGHT_TERMINAL_THEME` / `resolveTerminalTheme()` | 终端主题预设与解析（一套 token 驱动图表 / 盘口 / 页面外壳） |
 | `terminalThemeToChartTheme(theme)` | 终端主题 → 图表主题（喂给 `createPaneStack({ theme })`，再经 ice-chart 的桥进引擎主题） |
+| `ZH_TERMINAL_MESSAGES` / `EN_TERMINAL_MESSAGES` / `resolveTerminalMessages()` | 文案目录（库渲染的文案：提示框四价、盘口表头、指标序列名） |
+| `createIntlNumberFormat(locale)` / `DEFAULT_NUMBER_FORMAT` | 数字格式化：按 locale 的千分位与小数分隔符（`createTradingChart(…, { numberFormat })`） |
 | `applyTerminalTheme(theme, root?)` | 主题 → CSS 变量（`TERMINAL_THEME_VARS` 是变量名表），页面外壳只写样式表 |
 
 ## 图表外壳：数据由库给，排版由页面画
@@ -243,6 +245,7 @@ npm run build && npx http-server . -p 8102 -c-1
 | 十字准星 | 两条线都由页面画、**自由跟随指针**（竖线贯穿整摞 pane，是一把时间标尺）；横线只画在**指针所在的那一块**里、读数按那一块的量纲（成交量 pane 上读到的是成交量）；右轴价签 + 底部时间签；抬头实时跟随 |
 | 图表外壳的两条边界 | 最新价被推出视野时：虚线不画、价签钉在价格轴的上/下沿（不会压到下面的副图上）；指针停在标尺上时不出准星横线（横线的读数只属于绘图区） |
 | 盘面布局 | 顶部：行情跑马灯 + 交易对抬头（标记价 / 指数价 / 资金费率与倒计时 / 24h 高·低·量·额）；三栏：**图表 ·（订单簿 + 最新成交）·（下单 + 账户）**；底部：持仓 / 当前委托 / 画线记录三个**选项卡**，横跨图表与盘口两栏 |
+| i18n | 「显示」面板里可切**中文 / English**：库渲染的文案走 `TerminalMessages`（盘口表头、抬头行名、指标序列名），页面自己的文案走 `PAGE_MESSAGES` + `data-i18n` / `t()`；数字格式可换成 `Intl.NumberFormat`（`createIntlNumberFormat('de-DE')`） |
 | 主题 | 「显示」面板里可切**深色 / 浅色盘面**：一套 `TerminalTheme` token 同时驱动图表（经 ice-chart 主题桥进 ice-render 引擎主题）、盘口、页面外壳 CSS 变量 |
 | 盘面配色 | 深色盘面一套变量（底 `#0b0e11`、面板 `#181a20`、边框 `#2b3139`、强调 `#f0b90b`、涨 `#0ecb81`、跌 `#f6465d`），默认**涨绿跌红**；报价千分位 + 两位小数 |
 | 盘口 | 表头（价格 / 数量 / 合计）+ 合计列 + 深度条；**卖盘用跌色、买盘用涨色**；中间价一行放大显示最新价与价差；下面接「最新成交」列表（价格 / 数量 / 时间） |

@@ -3,6 +3,8 @@ import type { AxisOption, ChartOption, ICEChart, ICEChartOptions, SeriesOption, 
 import { computePriceRange } from './axisRange';
 import { resolveDpr } from './device';
 import { formatPrice } from './format';
+import { DEFAULT_NUMBER_FORMAT } from './messages';
+import type { TerminalMessages, TerminalNumberFormat, TerminalVolumeFormat } from './messages';
 import { CANDLESTICK_TYPE, registerTradingSeries } from './register';
 import { createOhlcTooltipFormatter } from './tooltip';
 import type { CandleLabels, OhlcTooltipOptions } from './tooltip';
@@ -23,6 +25,18 @@ export interface TradingChartExtras {
    * `42300` 和 `42300.5` 混在一起反而难读。用户自己写了 `yAxis.formatter` 时不覆盖。
    */
   pricePrecision?: number;
+  /**
+   * 文案目录（'zh' / 'en' 预设或自定义片段）：提示框的行名从它取。
+   *
+   * 库自己渲染的文案都在这里，见 `src/messages.ts`；应用自己的界面文案不归库管。
+   */
+  messages?: Partial<TerminalMessages> | 'zh' | 'en';
+  /**
+   * 数字格式化（价格轴刻度 + 提示框）；要按 locale 走就传 `createIntlNumberFormat('de-DE')`。
+   */
+  numberFormat?: TerminalNumberFormat;
+  /** 成交量格式化（提示框里的量）。 */
+  volumeFormat?: TerminalVolumeFormat;
   /**
    * 是否自动钉住价格轴范围，默认 `true`。
    *
@@ -134,9 +148,10 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
 
   // 报价小数位：只填没写 formatter 的价格轴（用户自己格式化时不抢）
   const precision = Number(extras.pricePrecision);
+  const numberFormat = extras.numberFormat || DEFAULT_NUMBER_FORMAT;
   if (extras.pricePrecision !== undefined && isFinite(precision) && !axes[0].formatter) {
     const digits = Math.min(8, Math.max(0, Math.round(precision)));
-    axes[0].formatter = (value: unknown) => formatPrice(Number(value), digits);
+    axes[0].formatter = (value: unknown) => numberFormat(Number(value), digits);
     axesTouched = true;
   }
 
@@ -174,6 +189,9 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
       seriesOption: candleOption,
       labels: extras.priceLabels,
       pricePrecision: extras.pricePrecision,
+      messages: extras.messages,
+      numberFormat: extras.numberFormat,
+      volumeFormat: extras.volumeFormat,
       volumeSeriesId: volumeSeries ? String(volumeSeries.id) : undefined,
     };
     // ice-chart 把 `tooltip.formatter` 的返回类型声明成了 `string | string[]`，

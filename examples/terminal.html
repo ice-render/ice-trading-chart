@@ -370,18 +370,18 @@
         <div class="mark"><b id="t-last">-</b><span id="t-chg">-</span></div>
       </div>
       <div class="stats">
-        <div class="stat"><span>标记价格</span><b id="t-mark">-</b></div>
-        <div class="stat"><span>指数价格</span><b id="t-index">-</b></div>
-        <div class="stat"><span>资金费率 (8时) / 倒计时</span><b><i id="t-funding" style="font-style:normal">-</i> / <i id="t-fund-countdown" style="font-style:normal">--:--:--</i></b></div>
-        <div class="stat"><span>24h 最高价</span><b id="t-high">-</b></div>
-        <div class="stat"><span>24h 最低价</span><b id="t-low">-</b></div>
-        <div class="stat"><span>24h 成交量 (SYN)</span><b id="t-vol">-</b></div>
-        <div class="stat"><span>24h 成交额 (USDT)</span><b id="t-amount">-</b></div>
+        <div class="stat"><span data-i18n="top.mark">标记价格</span><b id="t-mark">-</b></div>
+        <div class="stat"><span data-i18n="top.index">指数价格</span><b id="t-index">-</b></div>
+        <div class="stat"><span data-i18n="top.funding">资金费率 (8时) / 倒计时</span><b><i id="t-funding" style="font-style:normal">-</i> / <i id="t-fund-countdown" style="font-style:normal">--:--:--</i></b></div>
+        <div class="stat"><span data-i18n="top.high">24h 最高价</span><b id="t-high">-</b></div>
+        <div class="stat"><span data-i18n="top.low">24h 最低价</span><b id="t-low">-</b></div>
+        <div class="stat"><span data-i18n="top.volume">24h 成交量 (SYN)</span><b id="t-vol">-</b></div>
+        <div class="stat"><span data-i18n="top.amount">24h 成交额 (USDT)</span><b id="t-amount">-</b></div>
       </div>
       <div class="tools">
-        <button class="btn" id="btn-toggle">暂停</button>
-        <button class="btn" id="btn-reset">重置</button>
-        <button class="btn" id="btn-latest" style="display:none">回到最新</button>
+        <button class="btn" id="btn-toggle" data-i18n="btn.pause">暂停</button>
+        <button class="btn" id="btn-reset" data-i18n="btn.reset">重置</button>
+        <button class="btn" id="btn-latest" style="display:none" data-i18n="btn.latest">回到最新</button>
       </div>
     </header>
 
@@ -389,11 +389,11 @@
       <!-- ① 图表 -->
       <section class="panel chart-col">
         <div class="chart-bar" id="chart-bar">
-          <div class="tabs"><button type="button" class="on">图表</button><button type="button">信息</button><button type="button">数据</button></div>
+          <div class="tabs"><button type="button" class="on" data-i18n="chart.tab">图表</button><button type="button" data-i18n="chart.info">信息</button><button type="button" data-i18n="chart.data">数据</button></div>
           <span class="sep"></span>
           <div class="tabs" id="tb-intervals"></div>
           <div class="tb-menu" data-menu="intervals">
-            <button class="tb-trigger" type="button" title="周期" aria-label="周期">
+            <button class="tb-trigger" type="button" title="周期" aria-label="周期" data-i18n-title="tool.intervals">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
                 <circle cx="8" cy="8" r="6.2" />
                 <path d="M8 4.4V8l2.6 1.6" stroke-linecap="round" />
@@ -404,7 +404,7 @@
           </div>
           <span class="sep"></span>
           <div class="tb-menu" data-menu="type">
-            <button class="tb-trigger" type="button" title="图表类型" aria-label="图表类型">
+            <button class="tb-trigger" type="button" title="图表类型" aria-label="图表类型" data-i18n-title="tool.type">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
                 <path d="M5 2.4v11.2M11 3.4v9.2" stroke-linecap="round" />
                 <rect x="3.3" y="5" width="3.4" height="6" rx="0.4" fill="currentColor" stroke="none" />
@@ -415,7 +415,7 @@
             <div class="tb-panel" id="panel-type"></div>
           </div>
           <div class="tb-menu" data-menu="indicators">
-            <button class="tb-trigger" type="button" title="指标" aria-label="指标">
+            <button class="tb-trigger" type="button" title="指标" aria-label="指标" data-i18n-title="tool.indicators">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                 <path d="M3.2 12.4V8.6M8 12.4V3.6M12.8 12.4v-5.2" />
               </svg>
@@ -424,7 +424,7 @@
             <div class="tb-panel" id="panel-indicators"></div>
           </div>
           <div class="tb-menu" data-menu="drawings">
-            <button class="tb-trigger" type="button" title="画线" aria-label="画线">
+            <button class="tb-trigger" type="button" title="画线" aria-label="画线" data-i18n-title="tool.drawing">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
                 <path d="M11.4 2.6l2 2L5.6 12.4l-2.6.6.6-2.6 7.8-7.8z" />
                 <path d="M10.2 3.8l2 2" stroke-linecap="round" />
@@ -434,7 +434,7 @@
             <div class="tb-panel" id="panel-drawings"></div>
           </div>
           <div class="tb-menu" data-menu="display">
-            <button class="tb-trigger" type="button" title="显示" aria-label="显示">
+            <button class="tb-trigger" type="button" title="显示" aria-label="显示" data-i18n-title="tool.display">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
                 <path d="M2.6 4.6h10.8M2.6 11.4h10.8" />
                 <circle cx="6" cy="4.6" r="1.6" fill="var(--panel)" />
@@ -452,9 +452,9 @@
           <div class="chart-main">
             <div id="panes"></div>
             <div class="chart-foot">
-              <span>下一根 <b id="s-countdown">--:--</b></span>
-              <span>距资金费率 <b id="s-next">--:--</b></span>
-              <span>已推送 <b id="s-pushed">0</b></span>
+              <span><span data-i18n="foot.countdown">下一根</span> <b id="s-countdown">--:--</b></span>
+              <span><span data-i18n="foot.funding">距资金费率</span> <b id="s-next">--:--</b></span>
+              <span><span data-i18n="foot.pushed">已推送</span> <b id="s-pushed">0</b></span>
               <span>fps <b id="s-fps">0</b></span>
               <span id="s-hint">滚轮缩放任一 pane · 标尺：上下拖 / 滚轮缩放、双击自适应、右键菜单 · 键盘：←→ 平移、↑↓ 价格轴、+/- 时间轴、Home 回到最新</span>
             </div>
@@ -464,17 +464,17 @@
 
       <!-- ② 订单簿 + 最新成交 -->
       <section class="panel book-col">
-        <div class="panel-head">订单簿 <span class="right" id="b-levels">10 档</span></div>
+        <div class="panel-head"><span data-i18n="book.title">订单簿</span> <span class="right" id="b-levels">10 档</span></div>
         <!-- 盘口由库里的 createOrderBook 组件渲染（结构 / 样式 / 深度条 / 点击都在组件里） -->
         <div id="order-book"></div>
         <div class="trades-wrap">
           <div class="trades-head">
-            <button type="button" class="on">最新成交</button>
-            <button type="button">市场异动</button>
+            <button type="button" class="on" data-i18n="trades.title">最新成交</button>
+            <button type="button" data-i18n="trades.moves">市场异动</button>
           </div>
           <div class="trades">
             <table>
-              <thead><tr><th>价格 (USDT)</th><th>数量 (SYN)</th><th>时间</th></tr></thead>
+              <thead><tr><th data-i18n="trades.price">价格 (USDT)</th><th data-i18n="trades.size">数量 (SYN)</th><th data-i18n="trades.time">时间</th></tr></thead>
               <tbody id="trades"></tbody>
             </table>
           </div>
@@ -485,57 +485,57 @@
       <section class="order-col">
         <div class="order-panel">
           <div class="order-top">
-            <button type="button" class="pill" data-margin="cross">全仓</button>
-            <button type="button" class="pill dim" data-margin="isolated">逐仓</button>
+            <button type="button" class="pill" data-margin="cross" data-i18n="order.cross">全仓</button>
+            <button type="button" class="pill dim" data-margin="isolated" data-i18n="order.isolated">逐仓</button>
             <button type="button" class="pill" id="o-lev-pill" title="杠杆">10x</button>
             <span class="spacer">···</span>
           </div>
           <form class="order" id="order-form" onsubmit="return false">
             <div class="order-tabs" id="order-tabs">
-              <button type="button" data-type="limit" class="on">限价</button>
-              <button type="button" data-type="market">市价</button>
+              <button type="button" data-type="limit" class="on" data-i18n="order.limit">限价</button>
+              <button type="button" data-type="market" data-i18n="order.market">市价</button>
               <span class="spacer"></span>
               <span class="info" title="限价单以指定价格挂单；市价单立即成交">ⓘ</span>
             </div>
-            <div class="avail"><span>可用</span><b id="o-avail">-</b></div>
-            <div class="field-label">委托价格</div>
+            <div class="avail"><span data-i18n="order.available">可用</span><b id="o-avail">-</b></div>
+            <div class="field-label" data-i18n="order.price">委托价格</div>
             <div class="field-row">
               <div class="input-wrap"><input id="o-price" class="mono" type="text" inputmode="decimal" /><span class="unit">USDT</span></div>
-              <button type="button" class="best" id="o-best">最优价</button>
+              <button type="button" class="best" id="o-best" data-i18n="order.best">最优价</button>
             </div>
-            <div class="field-label">数量</div>
+            <div class="field-label" data-i18n="order.size">数量</div>
             <div class="input-wrap"><input id="o-size" class="mono" type="text" inputmode="decimal" value="0.5" /><span class="unit">SYN</span></div>
             <div class="pct-slider" id="o-pct" title="按可用保证金的百分比填数量"></div>
             <div class="leverage">
-              <label>杠杆</label>
+              <label data-i18n="order.leverage">杠杆</label>
               <input id="o-lev" type="range" min="1" max="50" value="10" />
               <b id="o-lev-text">10×</b>
             </div>
             <div class="checks">
-              <label><input type="checkbox" id="o-tp" /> 止盈止损</label>
-              <label><input type="checkbox" id="o-ro" /> 只减仓</label>
+              <label><input type="checkbox" id="o-tp" /> <span data-i18n="order.tpsl">止盈止损</span></label>
+              <label><input type="checkbox" id="o-ro" /> <span data-i18n="order.reduceOnly">只减仓</span></label>
             </div>
             <div class="row-2" id="o-tpsl" style="display:none">
               <input id="o-tp-price" class="mono" type="text" placeholder="止盈价" />
               <input id="o-sl-price" class="mono" type="text" placeholder="止损价" />
             </div>
             <div class="submit">
-              <button type="button" class="buy" id="o-buy">买入 / 做多</button>
-              <button type="button" class="sell" id="o-sell">卖出 / 做空</button>
+              <button type="button" class="buy" id="o-buy" data-i18n="order.buy">买入 / 做多</button>
+              <button type="button" class="sell" id="o-sell" data-i18n="order.sell">卖出 / 做空</button>
             </div>
             <div class="hintline" id="o-hint">可用 100,000 USDT · 市价单立即成交</div>
           </form>
         </div>
         <div class="account">
-          <h4>账户</h4>
-          <div class="acct-title">保证金比率</div>
-          <div class="row"><span>保证金比率</span><b id="acct-ratio">0.00%</b></div>
-          <div class="row"><span>维持保证金</span><b id="acct-maint">0.0000 USDT</b></div>
-          <div class="row"><span>保证金余额</span><b id="acct-balance">-</b></div>
+          <h4 data-i18n="account.title">账户</h4>
+          <div class="acct-title" data-i18n="account.ratio">保证金比率</div>
+          <div class="row"><span data-i18n="account.ratio">保证金比率</span><b id="acct-ratio">0.00%</b></div>
+          <div class="row"><span data-i18n="account.maint">维持保证金</span><b id="acct-maint">0.0000 USDT</b></div>
+          <div class="row"><span data-i18n="account.balance">保证金余额</span><b id="acct-balance">-</b></div>
           <div class="acct-actions">
-            <button type="button" data-action="transfer">划转</button>
-            <button type="button" data-action="buy">买币</button>
-            <button type="button" data-action="convert">兑换</button>
+            <button type="button" data-action="transfer" data-i18n="account.transfer">划转</button>
+            <button type="button" data-action="buy" data-i18n="account.buy">买币</button>
+            <button type="button" data-action="convert" data-i18n="account.convert">兑换</button>
           </div>
         </div>
       </section>
@@ -543,20 +543,20 @@
       <!-- ④ 底部：持仓 / 当前委托 / 画线记录 -->
       <section class="panel bottom-col">
         <div class="bottom-tabs" id="bottom-tabs">
-          <button type="button" class="on" data-tab="positions">持仓 <span class="count" id="p-count">0</span></button>
-          <button type="button" data-tab="orders">当前委托 <span class="count" id="ord-count">0</span></button>
-          <button type="button" data-tab="drawings">画线记录 <span class="count" id="d-count">0</span></button>
+          <button type="button" class="on" data-tab="positions"><span data-i18n="tab.positions">持仓</span> <span class="count" id="p-count">0</span></button>
+          <button type="button" data-tab="orders"><span data-i18n="tab.orders">当前委托</span> <span class="count" id="ord-count">0</span></button>
+          <button type="button" data-tab="drawings"><span data-i18n="tab.drawings">画线记录</span> <span class="count" id="d-count">0</span></button>
         </div>
         <div class="bottom-body" id="bottom-body">
           <div class="pane on" data-pane="positions">
             <table>
-              <thead><tr><th>方向</th><th>数量</th><th>开仓均价</th><th>标记价</th><th>未实现盈亏</th><th>保证金</th><th>强平价</th><th>杠杆</th></tr></thead>
+              <thead><tr><th data-i18n="th.side">方向</th><th data-i18n="th.size">数量</th><th data-i18n="th.entry">开仓均价</th><th data-i18n="th.mark">标记价</th><th data-i18n="th.pnl">未实现盈亏</th><th data-i18n="th.margin">保证金</th><th data-i18n="th.liq">强平价</th><th data-i18n="th.leverage">杠杆</th></tr></thead>
               <tbody id="positions"></tbody>
             </table>
           </div>
           <div class="pane" data-pane="orders">
             <table>
-              <thead><tr><th>时间</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th><th></th></tr></thead>
+              <thead><tr><th data-i18n="th.time">时间</th><th data-i18n="th.side">方向</th><th data-i18n="th.type">类型</th><th data-i18n="th.price">价格</th><th data-i18n="th.size">数量</th><th data-i18n="th.status">状态</th><th></th></tr></thead>
               <tbody id="orders"></tbody>
             </table>
           </div>
@@ -593,6 +593,173 @@
         };
         /** 周期下拉里的分组顺序（自定义周期排最后）。 */
         static INTERVAL_GROUPS = ['分钟', '小时', '天', '周', '月', '自定义'];
+        /** 周期分组名的英文对照（目录里的 key 是中文分组名）。 */
+        static GROUP_LABELS = {
+          en: { 分钟: 'Minutes', 小时: 'Hours', 天: 'Days', 周: 'Weeks', 月: 'Months', 自定义: 'Custom' },
+        };
+        /**
+         * **页面自己的文案目录**（应用侧的那一半）。
+         *
+         * 库渲染的文案（提示框四价、盘口表头、指标序列名）不在这里 —— 那是库的 `TerminalMessages`
+         * （见 `this.messages`）。这里放的是页面自己画的东西：抬头、面板、表单、表格、按钮。
+         * 接 i18n 的姿势就两步：**一份目录 + `t()` / `data-i18n`**（下面 `applyI18n()` 负责刷）。
+         *
+         * 说明：演示页只把**静态骨架**接进了目录；下拉面板里的选项、`setHint()` 的动态提示
+         * 仍是中文写死（那是应用自己的业务文案，接法与这里完全一样，只是字更多）。
+         */
+        static PAGE_MESSAGES = {
+          zh: {
+            'top.mark': '标记价格',
+            'top.index': '指数价格',
+            'top.funding': '资金费率 (8时) / 倒计时',
+            'top.high': '24h 最高价',
+            'top.low': '24h 最低价',
+            'top.volume': '24h 成交量 (SYN)',
+            'top.amount': '24h 成交额 (USDT)',
+            'btn.pause': '暂停',
+            'btn.resume': '继续',
+            'btn.reset': '重置',
+            'btn.latest': '回到最新',
+            'chart.tab': '图表',
+            'chart.info': '信息',
+            'chart.data': '数据',
+            'tool.intervals': '周期',
+            'tool.type': '图表类型',
+            'tool.indicators': '指标',
+            'tool.drawing': '画线',
+            'tool.display': '显示',
+            'book.title': '订单簿',
+            'book.levels': '{n} 档',
+            'trades.title': '最新成交',
+            'trades.moves': '市场异动',
+            'trades.price': '价格 (USDT)',
+            'trades.size': '数量 (SYN)',
+            'trades.time': '时间',
+            'order.cross': '全仓',
+            'order.isolated': '逐仓',
+            'order.limit': '限价',
+            'order.market': '市价',
+            'order.available': '可用',
+            'order.price': '委托价格',
+            'order.best': '最优价',
+            'order.size': '数量',
+            'order.leverage': '杠杆',
+            'order.tpsl': '止盈止损',
+            'order.reduceOnly': '只减仓',
+            'order.buy': '买入 / 做多',
+            'order.sell': '卖出 / 做空',
+            'account.title': '账户',
+            'account.ratio': '保证金比率',
+            'account.maint': '维持保证金',
+            'account.balance': '保证金余额',
+            'account.transfer': '划转',
+            'account.buy': '买币',
+            'account.convert': '兑换',
+            'tab.positions': '持仓',
+            'tab.orders': '当前委托',
+            'tab.drawings': '画线记录',
+            'th.side': '方向',
+            'th.size': '数量',
+            'th.entry': '开仓均价',
+            'th.mark': '标记价',
+            'th.pnl': '未实现盈亏',
+            'th.margin': '保证金',
+            'th.liq': '强平价',
+            'th.leverage': '杠杆',
+            'th.time': '时间',
+            'th.type': '类型',
+            'th.price': '价格',
+            'th.status': '状态',
+            'empty.positions': '暂无持仓',
+            'empty.orders': '暂无委托',
+            'foot.countdown': '下一根',
+            'foot.funding': '距资金费率',
+            'foot.pushed': '已推送',
+            'foot.fps': 'fps',
+            'tool.trend': '趋势线',
+            'tool.hline': '水平线',
+            'tool.vline': '垂直线',
+            'tool.rect': '区间矩形',
+            'tool.delete': '删除选中',
+            'tool.clear': '清空全部',
+          },
+          en: {
+            'top.mark': 'Mark Price',
+            'top.index': 'Index Price',
+            'top.funding': 'Funding (8h) / Countdown',
+            'top.high': '24h High',
+            'top.low': '24h Low',
+            'top.volume': '24h Volume (SYN)',
+            'top.amount': '24h Turnover (USDT)',
+            'btn.pause': 'Pause',
+            'btn.resume': 'Resume',
+            'btn.reset': 'Reset',
+            'btn.latest': 'Latest',
+            'chart.tab': 'Chart',
+            'chart.info': 'Info',
+            'chart.data': 'Data',
+            'tool.intervals': 'Interval',
+            'tool.type': 'Chart type',
+            'tool.indicators': 'Indicators',
+            'tool.drawing': 'Drawing',
+            'tool.display': 'Display',
+            'book.title': 'Order Book',
+            'book.levels': '{n} levels',
+            'trades.title': 'Market Trades',
+            'trades.moves': 'Moves',
+            'trades.price': 'Price (USDT)',
+            'trades.size': 'Size (SYN)',
+            'trades.time': 'Time',
+            'order.cross': 'Cross',
+            'order.isolated': 'Isolated',
+            'order.limit': 'Limit',
+            'order.market': 'Market',
+            'order.available': 'Available',
+            'order.price': 'Price',
+            'order.best': 'Best',
+            'order.size': 'Size',
+            'order.leverage': 'Leverage',
+            'order.tpsl': 'TP/SL',
+            'order.reduceOnly': 'Reduce-only',
+            'order.buy': 'Buy / Long',
+            'order.sell': 'Sell / Short',
+            'account.title': 'Account',
+            'account.ratio': 'Margin ratio',
+            'account.maint': 'Maintenance margin',
+            'account.balance': 'Margin balance',
+            'account.transfer': 'Transfer',
+            'account.buy': 'Buy Crypto',
+            'account.convert': 'Convert',
+            'tab.positions': 'Positions',
+            'tab.orders': 'Open Orders',
+            'tab.drawings': 'Drawings',
+            'th.side': 'Side',
+            'th.size': 'Size',
+            'th.entry': 'Entry',
+            'th.mark': 'Mark',
+            'th.pnl': 'Unrealized PnL',
+            'th.margin': 'Margin',
+            'th.liq': 'Liq. Price',
+            'th.leverage': 'Leverage',
+            'th.time': 'Time',
+            'th.type': 'Type',
+            'th.price': 'Price',
+            'th.status': 'Status',
+            'empty.positions': 'No positions',
+            'empty.orders': 'No open orders',
+            'foot.countdown': 'Next bar',
+            'foot.funding': 'Funding in',
+            'foot.pushed': 'Pushed',
+            'foot.fps': 'fps',
+            'tool.trend': 'Trend line',
+            'tool.hline': 'Horizontal line',
+            'tool.vline': 'Vertical line',
+            'tool.rect': 'Rectangle',
+            'tool.delete': 'Delete selected',
+            'tool.clear': 'Clear all',
+          },
+        };
+
         /**
          * 三块 pane 的 id，顺序与 `mount()` 里传给 createPaneStack 的 specs 一致。
          * 十字准星要靠它把「指针落在哪一块」翻译成「读哪一块的 y 轴」。
@@ -772,6 +939,10 @@
          * 盘口组件、以及页面外壳的 CSS 变量 —— 见库里的 `src/theme.ts`。
          */
         terminalTheme = ICETradingChart.DARK_TERMINAL_THEME;
+        /** 界面语言（'zh' / 'en'）。 */
+        lang = 'zh';
+        /** 库渲染的文案目录（提示框 / 盘口表头 / 指标序列名）。 */
+        messages = ICETradingChart.resolveTerminalMessages('zh');
         indicators = { ma: true, ema: false, boll: false };
         /**
          * 图表类型：`candle` 蜡烛 / `hollow` 空心蜡烛 / `line` 折线 / `area` 面积。
@@ -997,6 +1168,7 @@
         /** 主图叠加（在渲染窗口的真实 K 上算）。 */
         get overlaySeries() {
           const spec = { palette: ['#f0b90b', '#b57bff', '#848e9c', '#0ecb81', '#f6465d'] };
+          spec.messages = this.messages;
           if (this.indicators.ma) spec.ma = this.maPeriods.slice();
           if (this.indicators.ema) spec.emaPeriods = this.emaPeriods.slice();
           if (this.indicators.boll) spec.boll = { period: this.bollPeriod, multiplier: 2 };
@@ -1130,7 +1302,7 @@
 
         get indicatorPaneOption() {
           if (this.paneKind === 'rsi') {
-            const built = ICETradingChart.createRsiPaneOption(this.indicatorSource, { period: this.rsiPeriod });
+            const built = ICETradingChart.createRsiPaneOption(this.indicatorSource, { period: this.rsiPeriod, messages: this.messages });
             return {
               legend: { show: false },
               animation: { enabled: false },
@@ -1147,6 +1319,7 @@
           }
           const built = ICETradingChart.createMacdPaneOption(this.indicatorSource, {
             ...this.macdParams,
+            messages: this.messages,
             upColor: this.upColor,
             downColor: this.downColor,
           });
@@ -1458,9 +1631,17 @@
           return this.allIntervals()[key] || null;
         }
 
+        /** 周期的显示名：中文用内置的「5 分钟」，英文直接用 key（5m）—— 与工具条那排收藏项一致。 */
         intervalLabel(key) {
+          if (this.lang === 'en') return key;
           const interval = this.intervalOf(key);
           return interval && interval.label ? interval.label : key;
+        }
+
+        /** 周期分组名（下拉里的「分钟 / 小时 / …」）。 */
+        groupLabel(group) {
+          if (this.lang !== 'en') return group;
+          return TerminalPage.GROUP_LABELS.en[group] || group;
         }
 
         seed() {
@@ -1518,7 +1699,11 @@
                 primary: true,
                 weight: 5,
                 option: () => this.priceOption,
-                extras: { autoVolume: false, pricePrecision: TerminalPage.PRICE_PRECISION },
+                extras: {
+                  autoVolume: false,
+                  pricePrecision: TerminalPage.PRICE_PRECISION,
+                  messages: this.messages,
+                },
               },
               { id: 'volume', weight: 2, option: () => this.volumeOption },
               { id: 'indicator', weight: 2, option: () => this.indicatorPaneOption },
@@ -1554,19 +1739,21 @@
           this.book = ICETradingChart.createOrderBook(document.getElementById('order-book'), {
             levels: TerminalPage.LEVELS,
             theme: this.terminalTheme,
+            messages: this.messages,
             // 卖盘用跌色、买盘用涨色；价格与数量按合约盘面的口径格式化（千分位 + 三位小数）
             upColor: this.upColor,
             downColor: this.downColor,
             priceFormat: (price) => TerminalPage.price(price),
             sizeFormat: (size) => size.toFixed(3),
-            labels: { price: '价格 (USDT)', size: '数量 (SYN)', total: '合计 (SYN)' },
+            labels: this.bookLabels(),
             onPickPrice: (price) => {
               document.getElementById('o-price').value = String(price);
               this.setHint(`已填入盘口价 ${TerminalPage.price(price)}`);
             },
           });
-          document.getElementById('b-levels').textContent = `${TerminalPage.LEVELS} 档`;
+          document.getElementById('b-levels').textContent = this.t('book.levels', { n: TerminalPage.LEVELS });
           this.renderDrawings();
+          this.applyI18n();
           window.addEventListener('resize', () => this.resize());
         }
 
@@ -1583,11 +1770,11 @@
             '<div class="ohlc">' +
             '<span class="sym">SYN/USDT</span>' +
             '<span class="kv" data-k="interval">5m</span>' +
-            '<span class="kv">开 <b data-k="open">-</b></span>' +
-            '<span class="kv">高 <b data-k="high">-</b></span>' +
-            '<span class="kv">低 <b data-k="low">-</b></span>' +
-            '<span class="kv">收 <b data-k="close">-</b></span>' +
-            '<span class="kv">量 <b data-k="volume">-</b></span>' +
+            `<span class="kv"><span data-ohlc-label="open">${this.messages.tooltip.open}</span> <b data-k="open">-</b></span>` +
+            `<span class="kv"><span data-ohlc-label="high">${this.messages.tooltip.high}</span> <b data-k="high">-</b></span>` +
+            `<span class="kv"><span data-ohlc-label="low">${this.messages.tooltip.low}</span> <b data-k="low">-</b></span>` +
+            `<span class="kv"><span data-ohlc-label="close">${this.messages.tooltip.close}</span> <b data-k="close">-</b></span>` +
+            `<span class="kv"><span data-ohlc-label="volume">${this.messages.tooltip.volume}</span> <b data-k="volume">-</b></span>` +
             '<span class="kv" data-k="chg">-</span>' +
             '<span class="kv" data-k="time">-</span>' +
             '</div>' +
@@ -1760,7 +1947,7 @@
         }
 
         onPanelClick(name, event) {
-          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-type],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-theme],[data-custom]') : null;
+          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-type],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-theme],[data-lang],[data-custom]') : null;
           if (!target) return;
           const read = (key) => target.getAttribute(key);
           const star = read('data-star');
@@ -1831,6 +2018,9 @@
             this.invalidate();
             return undefined;
           }
+          const langKey = read('data-lang');
+          if (langKey) return this.setLanguage(langKey);
+
           const themeKey = read('data-theme');
           if (themeKey) return this.setTerminalTheme(themeKey);
 
@@ -1985,7 +2175,7 @@
           }
           for (const group of TerminalPage.INTERVAL_GROUPS) {
             if (!groups[group] || !groups[group].length) continue;
-            rows.push(`<div class="tb-title">${group}</div>`);
+            rows.push(`<div class="tb-title">${this.groupLabel(group)}</div>`);
             for (const key of groups[group]) {
               const active = key === this.intervalKey;
               const starred = this.favorites.indexOf(key) >= 0;
@@ -2055,7 +2245,10 @@
             `<div class="tb-item ${on ? 'active' : ''}" data-display="${id}"><span class="tb-mark">${on ? '✓' : ''}</span>${label}</div>`;
           const isLight = this.terminalTheme === ICETradingChart.LIGHT_TERMINAL_THEME;
           document.getElementById('panel-display').innerHTML =
-            '<div class="tb-title">盘面</div>' +
+            '<div class="tb-title">语言 / Language</div>' +
+            `<div class="tb-item ${this.lang === 'zh' ? 'active' : ''}" data-lang="zh"><span class="tb-mark">${this.lang === 'zh' ? '●' : ''}</span>中文</div>` +
+            `<div class="tb-item ${this.lang === 'en' ? 'active' : ''}" data-lang="en"><span class="tb-mark">${this.lang === 'en' ? '●' : ''}</span>English</div>` +
+            '<div class="tb-title">盘面 / Theme</div>' +
             `<div class="tb-item ${isLight ? 'active' : ''}" data-theme="light"><span class="tb-mark">${isLight ? '●' : ''}</span>浅色盘面</div>` +
             `<div class="tb-item ${isLight ? '' : 'active'}" data-theme="dark"><span class="tb-mark">${isLight ? '' : '●'}</span>深色盘面</div>` +
             '<div class="tb-title">涨跌配色</div>' +
@@ -2196,6 +2389,62 @@
           // 松手可能发生在图外（甚至窗口外），挂在 window 上才不会漏
           window.addEventListener('pointerup', finish);
           window.addEventListener('pointercancel', finish);
+        }
+
+        /** 盘口表头的列名：目录里的词 + 单位（单位跟交易对走，不进目录）。 */
+        bookLabels() {
+          const text = this.messages.orderBook;
+          return { price: `${text.price} (USDT)`, size: `${text.size} (SYN)`, total: `${text.total} (SYN)` };
+        }
+
+        /** 页面自己文案的取词（缺失时退回中文，再退回 key）。 */
+        t(key, params) {
+          const table = TerminalPage.PAGE_MESSAGES[this.lang] || TerminalPage.PAGE_MESSAGES.zh;
+          let text = table[key] !== undefined ? table[key] : TerminalPage.PAGE_MESSAGES.zh[key] !== undefined ? TerminalPage.PAGE_MESSAGES.zh[key] : key;
+          if (params) {
+            for (const name of Object.keys(params)) text = text.replace(`{${name}}`, String(params[name]));
+          }
+          return text;
+        }
+
+        /**
+         * 把页面自己的文案刷到 DOM：`data-i18n` 写文本、`data-i18n-title` 写悬停提示。
+         *
+         * 这就是「应用侧接 i18n」的全部姿势 —— 一份目录 + 两个属性（JS 里动态拼的文案走 `t()`）。
+         */
+        applyI18n() {
+          for (const node of document.querySelectorAll('[data-i18n]')) {
+            node.textContent = this.t(node.getAttribute('data-i18n'));
+          }
+          for (const node of document.querySelectorAll('[data-i18n-title]')) {
+            node.setAttribute('title', this.t(node.getAttribute('data-i18n-title')));
+            node.setAttribute('aria-label', this.t(node.getAttribute('data-i18n-title')));
+          }
+          // 库渲染的文案：盘口表头（目录 + 单位）；档数那一行是页面自己写的
+          if (this.book) this.book.setMessages(this.messages, this.bookLabels());
+          const levels = document.getElementById('b-levels');
+          if (levels) levels.textContent = this.t('book.levels', { n: TerminalPage.LEVELS });
+          // 抬头那五个行名来自**库的**文案目录（与提示框同一份）
+          const tips = this.messages.tooltip;
+          const ohlcLabels = { open: tips.open, high: tips.high, low: tips.low, close: tips.close, volume: tips.volume };
+          for (const node of document.querySelectorAll('[data-ohlc-label]')) {
+            node.textContent = ohlcLabels[node.getAttribute('data-ohlc-label')] || node.textContent;
+          }
+          this.renderToolbar();
+          this.syncDrawBar();
+        }
+
+        /**
+         * 换语言：库侧（提示框 / 盘口表头 / 指标序列名）走 `TerminalMessages`，
+         * 页面侧（抬头 / 面板 / 表单 / 表格）走 `PAGE_MESSAGES` + `data-i18n`。
+         */
+        setLanguage(lang) {
+          this.lang = lang;
+          this.messages = ICETradingChart.resolveTerminalMessages(lang);
+          this.applyI18n();
+          this.readoutSig = '';
+          this.invalidate();
+          this.setHint(lang === 'en' ? '语言：English' : '语言：中文');
         }
 
         /**
@@ -2339,6 +2588,9 @@
             // 量程变了 → 外壳（最新价线、右轴价签、准星横线）要按新刻度重画
             this.chromeSig = '';
             this.syncChrome(true);
+            // 而且要让 option 重新求值一次：刻度档数是按**当前 y 窗口**反推的，
+            // 自适应把窗口换回自动那一段之后，旧档数是照手动窗口算的（实测：档数偏粗，一档 57px）
+            this.scheduleViewRefresh();
             return this.setHint(value.pane === 'price' ? '价格轴已自适应' : '已恢复自动量程');
           }
           if (!this.timeAxisAt(event.clientX, event.clientY)) return;
@@ -2620,14 +2872,14 @@
           const mode = this.drawing ? this.drawing.mode() : null;
           const stroke = 'viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"';
           const tools = [
-            ['trend', '趋势线', `<path d="M3 12.5L13 3.5" /><circle cx="3.4" cy="12.2" r="1.5" /><circle cx="12.6" cy="3.8" r="1.5" />`],
-            ['hline', '水平线', `<path d="M2.6 8h10.8" /><circle cx="8" cy="8" r="1.5" />`],
-            ['vline', '垂直线', `<path d="M8 2.6v10.8" /><circle cx="8" cy="8" r="1.5" />`],
-            ['rect', '区间矩形', `<rect x="3" y="4.4" width="10" height="7.2" rx="1" />`],
+            ['trend', this.t('tool.trend'), `<path d="M3 12.5L13 3.5" /><circle cx="3.4" cy="12.2" r="1.5" /><circle cx="12.6" cy="3.8" r="1.5" />`],
+            ['hline', this.t('tool.hline'), `<path d="M2.6 8h10.8" /><circle cx="8" cy="8" r="1.5" />`],
+            ['vline', this.t('tool.vline'), `<path d="M8 2.6v10.8" /><circle cx="8" cy="8" r="1.5" />`],
+            ['rect', this.t('tool.rect'), `<rect x="3" y="4.4" width="10" height="7.2" rx="1" />`],
           ];
           const actions = [
-            ['delete', '删除选中', `<path d="M3.4 5h9.2M6.4 5V3.6h3.2V5M5 5l.7 8.4h4.6L11 5" />`],
-            ['clear', '清空全部', `<path d="M3 11.5h10M5.5 11.5L4.4 4.2l7.2.02-1.1 7.3" />`],
+            ['delete', this.t('tool.delete'), `<path d="M3.4 5h9.2M6.4 5V3.6h3.2V5M5 5l.7 8.4h4.6L11 5" />`],
+            ['clear', this.t('tool.clear'), `<path d="M3 11.5h10M5.5 11.5L4.4 4.2l7.2.02-1.1 7.3" />`],
           ];
           bar.innerHTML =
             tools

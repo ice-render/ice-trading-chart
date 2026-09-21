@@ -6,6 +6,25 @@
 
 ### 新增
 
+- **i18n 接入点**（外部使用方确认「能不能方便地接进去」暴露出的缺口）：
+  - **文案目录** `TerminalMessages`（`src/messages.ts`）：库自己渲染的每一句话都在这里 ——
+    提示框四价、盘口表头三列、指标序列名（MA/EMA/BOLL/MACD/DIF/DEA/RSI）。预设
+    `ZH_TERMINAL_MESSAGES` / `EN_TERMINAL_MESSAGES`，`resolveTerminalMessages('en' | 片段)`
+    **按分组深合并**；入口是 `createTradingChart(…, { messages })`、
+    `createOrderBook({ messages })`、`createOverlaySeries / createMacdPaneOption / createRsiPaneOption(…, { messages })`。
+  - **数字格式化**：`TerminalNumberFormat`（`createTradingChart(…, { numberFormat })` 同时管价格轴刻度与
+    提示框），成交量另有 `volumeFormat`；新增 `createIntlNumberFormat(locale)`
+    （`42 300.5` → `de-DE` 的 `42.300,50`），环境没有 `Intl` 时退回默认格式。默认仍是千分位 + 固定小数位。
+  - **盘口**：`createOrderBook({ messages })` 与新增 **`setMessages(messages, labels?)`**（换语言只改表头文字、
+    不重建结构；显式 `labels` 仍优先，用于「目录 + 单位」这种组合）。
+  - **示例页**：新增「显示 → 语言：中文 / English」。页面自己的文案走 `PAGE_MESSAGES` 目录 +
+    `data-i18n` / `data-i18n-title` 属性，JS 里动态拼的走 `t(key, params)`（`applyI18n()` 一次刷）；
+    同时把库的 `messages` 喂给图表 / 盘口 / 指标构造，于是**库渲染的字与页面渲染的字一起换**。
+    演示页没做 i18n 的是下拉选项文字与 `setHint()` 的动态提示（应用自己的业务文案，接法相同）。
+  回归网：`tests/messages.test.ts`（目录 / 深合并 / locale 数字格式 / 提示框 / 价格轴 / 盘口表头）、
+  e2e「i18n」（库文案 + 页面文案一起换、可换回）。
+
+
 - **终端主题（一套 token 驱动三处外观）**：新增 `TerminalTheme` 与
   `DARK_TERMINAL_THEME` / `LIGHT_TERMINAL_THEME` / `resolveTerminalTheme()` /
   `terminalThemeToChartTheme()` / `applyTerminalTheme()`（`src/theme.ts`）。
