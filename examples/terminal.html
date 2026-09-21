@@ -338,13 +338,31 @@
          */
         static PANES = ['price', 'volume', 'indicator'];
         /**
-         * 图上载入的历史 = 可见根数 × 这个倍数。
+         * 初次载入的历史 = 可见根数 × 这个倍数。
          *
          * 为什么要多载：平移被夹在**已载入的数据范围**内，如果「显示多少就载多少」，
          * 默认缩放下拖动是零位移（实测 `clamp(0 + shift, 0, 0) = 0`）。多载一段才有得拖，
-         * 而默认窗口仍然只显示最后 `count` 根（见 `dataZoom.start`），画面不变。
+         * 而默认窗口仍然只显示最后 `count` 根，画面不变。
+         * 再多出来的部分靠 `ensureHistory()` 边拖边补 —— 左边是**无限**的。
          */
         static HISTORY_FACTOR = 3;
+        /** 每次往左补多少根历史。 */
+        static HISTORY_CHUNK = 400;
+        /**
+         * 交给图表的**渲染窗口**：视窗左右各多带这么多根。
+         *
+         * 归一化 / 指标 / 图元全是 O(n)：实测一次 `refresh` 在 360 根时 1.8ms、
+         * 1560 根 6.5ms、2760 根 10.7ms —— 拖动时每帧一次就顶到 60fps 的预算了。
+         * 所以内存里可以存很多历史、**交给图表的只裁到视窗附近**，开销恒定。
+         * 顺带把指标的预热期（MACD 要 33 根）留在视野外：用户也就看不到「副图左边空一块」。
+         */
+        static RENDER_MARGIN = 300;
+        /** 视窗左边缘在全量历史里的下标小于这个数就往前补一段（要 ≥ RENDER_MARGIN，别让渲染窗口贴到数据边界）。 */
+        static HISTORY_PREFETCH = 400;
+        /** 全量历史的内存上限（只影响内存，不影响渲染开销）。 */
+        static HISTORY_MAX = 20000;
+        /** 超限这么多还没能裁（视窗长期停在最左边）就硬裁：内存优先于视窗稳定。 */
+        static HISTORY_HARD_OVER = 2000;
         /**
          * 准星标尺色：竖线（引擎画）与横线（`.hline`）必须同色，否则十字会看起来是断的。
          * CSS 侧是 `--ruler`，改这里记得一起改。
@@ -385,13 +403,6 @@
           pan: { enabled: true, axes: 'xy' },
         };
 
-        /**
-         * 指标预热期：多生成这么多根只用来喂指标，**不显示**。
-         *
-         * MACD(12,26,9) 要 33 根才有第一个柱值（慢线 26 + 信号线 9），不预热的话
-         * 副图左侧会空出一大块（真实终端是靠「多取一段历史」消掉这个观感的）。
-         */
-        static WARMUP = 40;
         /** 默认收藏的周期（顶部工具条上常显的那一排）。 */
         static DEFAULT_FAVORITES = ['1m', '5m', '15m', '1H', '4H', '1D'];
         static PREFS_KEY = 'ice-trading-terminal-prefs';
@@ -465,6 +476,9 @@
         cursor = '';
         /** 平移 / 缩放的量程重算（rAF 节流句柄）。 */
         viewFrame = 0;
+        /** `visibleRange()` 的缓存（key = 总量 + 视窗两端 + 周期）。 */
+        rangeKey = '';
+        rangeValue = null;
         /**
          * 是否**跟盘**：新的 K 出来时把窗口钉在最后 `count` 根上。
          *
@@ -516,7 +530,7 @@
             id: 'k',
             type: 'candlestick',
             name: '价格',
-            // 只画可见段：`this.candles` 前面还挂着 WARMUP 根，那是喂指标的
+            // 画的是**渲染窗口**（视窗附近那几百根，不是全部历史）
             data: this.seriesCandles,
             // barWidth 不写就是默认（铺满类目带宽，只留 20% 间隙）
             candle: {
@@ -535,7 +549,7 @@
           if (this.indicators.ma) spec.ma = [7, 25];
           if (this.indicators.ema) spec.emaPeriods = [12, 26];
           if (this.indicators.boll) spec.boll = { period: 20, multiplier: 2 };
-          return this.drawable(ICETradingChart.createOverlaySeries(this.warmupSeries, spec));
+          return ICETradingChart.createOverlaySeries(this.candleSeries, spec);
         }
 
         get priceOption() {
@@ -594,8 +608,7 @@
 
         get indicatorPaneOption() {
           if (this.paneKind === 'rsi') {
-            const built = ICETradingChart.createRsiPaneOption(this.warmupSeries, { period: 14 });
-            built.series = this.drawable(built.series);
+            const built = ICETradingChart.createRsiPaneOption(this.candleSeries, { period: 14 });
             return {
               legend: { show: false },
               animation: { enabled: false },
@@ -609,11 +622,10 @@
               annotation: built.annotation,
             };
           }
-          const built = ICETradingChart.createMacdPaneOption(this.warmupSeries, {
+          const built = ICETradingChart.createMacdPaneOption(this.candleSeries, {
             upColor: this.upColor,
             downColor: this.downColor,
           });
-          built.series = this.drawable(built.series);
           // 量程按**可见窗口**算，副图才贴数据
           const range = ICETradingChart.macdRange({ ...this.candleSeries, data: this.visibleCandles() }, {});
           return {
@@ -676,25 +688,146 @@
           return this.interval.count * TerminalPage.HISTORY_FACTOR;
         }
 
-        /** 画出来的那一整段：载入的历史去掉前面喂指标的预热段。 */
-        get seriesCandles() {
-          return this.candles.length > TerminalPage.WARMUP ? this.candles.slice(TerminalPage.WARMUP) : this.candles;
+        /**
+         * 视窗在**全量历史**里的下标范围。**必须缓存**。
+         *
+         * 为什么：`displayLabel` 是 x 轴的 formatter，一次渲染按刻度数要被调十几次，
+         * 每次都做两趟 O(n) 的 `indexOf` —— 全量到两万根时一次渲染就是几十万次比较。
+         * 缓存的 key 用「总量 + 视窗两端 + 周期」，这几个都是现成的、不用扫数组。
+         */
+        visibleRange() {
+          const total = this.candles.length;
+          const chart = this.stack ? this.stack.chartOf('price') : null;
+          const domain = chart ? chart.getDomain('x') : null;
+          const first = domain && domain.length ? domain[0] : '';
+          const last = domain && domain.length ? domain[domain.length - 1] : '';
+          const key = `${total}|${first}|${last}|${this.intervalKey}`;
+          if (this.rangeKey === key && this.rangeValue) return this.rangeValue;
+          let from = -1;
+          let to = -1;
+          if (domain && domain.length >= 2) {
+            from = this.indexOfKey(this.candles, first);
+            to = this.indexOfKey(this.candles, last);
+          }
+          if (!(from >= 0 && to > from)) {
+            // 首帧图还没建好（option 要先于图表求值）或窗口取不到：按默认窗口（最后 count 根）算
+            from = Math.max(0, total - this.interval.count);
+            to = total - 1;
+          }
+          this.rangeKey = key;
+          this.rangeValue = { from, to };
+          return this.rangeValue;
         }
 
         /** 当前**可见窗口**里的那一段（量程、标签写法都按它算）。 */
         visibleCandles() {
-          const drawn = this.seriesCandles;
-          const chart = this.stack ? this.stack.chartOf('price') : null;
-          if (chart) {
-            const domain = chart.getDomain('x');
-            if (domain && domain.length >= 2) {
-              const from = this.indexOfKey(drawn, domain[0]);
-              const to = this.indexOfKey(drawn, domain[domain.length - 1]);
-              if (from >= 0 && to > from) return drawn.slice(from, to + 1);
-            }
+          const { from, to } = this.visibleRange();
+          return this.candles.slice(from, to + 1);
+        }
+
+        visibleCount() {
+          const { from, to } = this.visibleRange();
+          return to - from + 1;
+        }
+
+        /** 交给图表的渲染窗口（视窗左右各多带 `RENDER_MARGIN` 根）。 */
+        renderSlice() {
+          const { from, to } = this.visibleRange();
+          const total = this.candles.length;
+          // 跟盘时**一定把最右端带上**：`pinToLatest()` 是按「全量历史最后 count 根的 key」
+          // 去钉窗口的，如果那几根不在图表当前那段数据里，引擎的 clamp 找不到 key，
+          // 会把窗口解析成「整段数据」——「回到最新」就会飞进老历史里（实测踩到）。
+          const hi = this.follow ? total : to + 1 + TerminalPage.RENDER_MARGIN;
+          return {
+            from: Math.max(0, from - TerminalPage.RENDER_MARGIN),
+            to: Math.min(total, hi),
+          };
+        }
+
+        /**
+         * 价格轴量程：按**可见窗口**算。
+         *
+         * 载入的历史比可见的多得多，按全量算量程的话 K 线会整体变矮（随机游走的跨度
+         * 约 1.7 倍，K 线只剩 ~58% 高）。给出显式 min/max 后，`withPriceRange` 不会再覆盖
+         * （它只填没写的字段）。
+         */
+        visiblePriceRange() {
+          const range = ICETradingChart.computePriceRange([{ ...this.candleSeries, data: this.visibleCandles() }]);
+          return range ? { min: range.min, max: range.max } : {};
+        }
+
+        /**
+         * 画出来的那一整段 = **渲染窗口**，不是全部历史。
+         *
+         * 内存里可以存两万根（`HISTORY_MAX`），但交给图表的只有视窗附近这几百根 ——
+         * 「无限画布」和「开销恒定」就是靠这个分工同时成立的。
+         */
+        get seriesCandles() {
+          const { from, to } = this.renderSlice();
+          return from === 0 && to === this.candles.length ? this.candles : this.candles.slice(from, to);
+        }
+
+        /**
+         * 往左补一段历史 —— 「无限画布」靠它。
+         *
+         * 从现有最老一根的**开盘价**往回接：这一根的收盘 = 右边那根的开盘，于是价格是连续的
+         * （指标在接缝处不会跳空）。注意 `this.price` 是现价，往回造历史时**不能碰它**。
+         */
+        prependHistory(count) {
+          const interval = this.interval;
+          const first = this.candles[0];
+          if (!first || count <= 0) return;
+          const bars = [];
+          let cursor = first.o;
+          let at = first.at;
+          for (let i = 0; i < count; i++) {
+            at -= interval.ms;
+            const open = cursor + (Math.random() - 0.5) * cursor * 0.0022;
+            const high = Math.max(open, cursor) + Math.random() * cursor * 0.001;
+            const low = Math.min(open, cursor) - Math.random() * cursor * 0.001;
+            bars.push({
+              at,
+              x: this.keyOf(at),
+              o: TerminalPage.round2(open),
+              c: TerminalPage.round2(cursor),
+              h: TerminalPage.round2(high),
+              l: TerminalPage.round2(low),
+              v: Math.round(600 + Math.random() * 2600),
+            });
+            cursor = open;
           }
-          // 首帧图还没建好（option 要先于图表求值）或窗口取不到：按默认窗口算
-          return drawn.slice(Math.max(0, drawn.length - this.interval.count));
+          bars.reverse();
+          this.candles = bars.concat(this.candles);
+        }
+
+        /**
+         * 视窗快贴到数据左边缘时往前补一段。
+         *
+         * 为什么必须在**拖动过程中**就补：引擎的平移被夹在已载入的数据范围内，
+         * 补晚一步用户就已经撞到墙了（表现就是「拖到左边拖不动了」）。补完之后
+         * 同一轮拖动的下一次 pointermove 就能继续往左 —— 于是左边是无限的。
+         */
+        ensureHistory() {
+          if (this.candles.length >= TerminalPage.HISTORY_MAX) return;
+          const { from, to } = this.visibleRange();
+          if (to - from + 1 >= this.candles.length) return; // 整段都在视窗里，补了也没用
+          if (from > TerminalPage.HISTORY_PREFETCH) return; // 左边还够
+          this.prependHistory(Math.min(TerminalPage.HISTORY_CHUNK, TerminalPage.HISTORY_MAX - this.candles.length));
+        }
+
+        /**
+         * 全量历史的内存封顶。
+         *
+         * 现在渲染开销与历史长度无关（交给图表的只是渲染窗口），所以这里只关内存：
+         * 超过两万根才裁，而且**不裁进视窗左侧**（用户可能正停在最左边看）。
+         */
+        trimHistory() {
+          const over = this.candles.length - TerminalPage.HISTORY_MAX;
+          if (over <= 0) return;
+          const { from } = this.visibleRange();
+          const spare = Math.max(0, from - TerminalPage.HISTORY_PREFETCH);
+          const drop = over > TerminalPage.HISTORY_HARD_OVER ? over : Math.min(over, spare);
+          if (drop > 0) this.candles.splice(0, drop);
         }
 
         /**
@@ -708,7 +841,8 @@
          * 已经对上了就早退，省掉一次重建（一帧里 setDomain 会触发完整 rebuild）。
          */
         pinToLatest() {
-          const drawn = this.seriesCandles;
+          // 目标是**全量历史**的最后 count 根（不是渲染窗口的最后几根）
+          const drawn = this.candles;
           if (!drawn.length || !this.stack) return;
           const n = Math.min(this.interval.count, drawn.length);
           const next = [drawn[drawn.length - n].x, drawn[drawn.length - 1].x];
@@ -720,38 +854,9 @@
           this.stack.syncDomains();
         }
 
-        /**
-         * 价格轴量程：按**可见窗口**算。
-         *
-         * 载入的历史是可见根数的 3 倍，按全量算量程的话 K 线会整体变矮（随机游走的跨度
-         * 约 1.7 倍，K 线只剩 ~58% 高）。给出显式 min/max 后，`withPriceRange` 不会再覆盖
-         * （它只填没写的字段）。
-         */
-        visiblePriceRange() {
-          const range = ICETradingChart.computePriceRange([{ ...this.candleSeries, data: this.visibleCandles() }]);
-          return range ? { min: range.min, max: range.max } : {};
-        }
-
-        visibleCount() {
-          return this.visibleCandles().length;
-        }
-
         indexOfKey(rows, key) {
           for (let i = 0; i < rows.length; i++) if (rows[i].x === key) return i;
           return -1;
-        }
-
-        /** 把一串系列裁到可画区间（丢掉最前面的预热段）。 */
-        drawable(series) {
-          return series.map((item) => ({
-            ...item,
-            data: Array.isArray(item.data) ? item.data.slice(TerminalPage.WARMUP) : item.data,
-          }));
-        }
-
-        /** 全量 K 线系列（喂指标用，不直接画）。 */
-        get warmupSeries() {
-          return { ...this.candleSeries, data: this.candles };
         }
 
         /** 所有可选周期（内置 + 自定义）。 */
@@ -781,11 +886,10 @@
           this.pushed = 0;
           this.position = null;
           this.orders = [];
-          // 载入 historyCount 根（可拖动余量）+ WARMUP 根（只喂指标，不显示）
+          // 载入 historyCount 根（默认只显示最后 count 根，其余是往左可拖的余量）
           const history = this.historyCount;
-          const total = history + TerminalPage.WARMUP;
-          for (let i = 0; i < total; i++) {
-            this.candles.push(this.makeBar(now - (history - 1 - i + TerminalPage.WARMUP) * interval.ms));
+          for (let i = 0; i < history; i++) {
+            this.candles.push(this.makeBar(now - (history - 1 - i) * interval.ms));
           }
         }
 
@@ -824,9 +928,11 @@
           const priceChart = this.stack.chartOf('price');
           this.canvasEl = priceChart.ice.canvasEl;
           this.dpr = priceChart.ice.dpr || 1;
-          // 建图那一刻窗口是**全量**（360 根），这里同一帧内钉成最后 120 根；
+          // 建图那一刻窗口是**全量**，这里同一帧内钉成最后 count 根；
           // 浏览器在本轮任务结束后才绘制，所以用户看不到中间那帧。
           this.pinToLatest();
+          // 顺手先把左边补一段：否则第一次往左拖很快就贴到数据边界了
+          this.ensureHistory();
           this.readout = ICETradingChart.createOhlcReadout(priceChart, { volume: {} });
           this.drawing = ICETradingChart.createDrawingLayer(priceChart, {
             onChange: () => this.renderDrawings(),
@@ -1362,8 +1468,13 @@
           this.follow = true;
           document.getElementById('btn-latest').style.display = 'none';
           this.chromeSig = '';
+          // 分两步：先让图表拿到「最右端那段数据」（此刻视窗还停在老历史里，
+          // 渲染窗口是「老视窗 → 最右端」这一大段），再钉窗口。
           this.stack.refresh({ animate: false, preserveView: false });
           this.pinToLatest();
+          // 视窗已经跳到最右端了，再刷一次把渲染窗口收回到视窗附近（否则图表会一直
+          // 攥着刚才那一大段数据，开销白白变大）
+          this.stack.refresh({ animate: false, preserveView: true });
           this.paintAll();
           this.syncChrome(true);
           this.setHint('已回到最新');
@@ -1373,6 +1484,8 @@
           if (this.viewFrame) return;
           this.viewFrame = requestAnimationFrame(() => {
             this.viewFrame = null;
+            // 先补历史再刷新：补晚一步，这一帧的拖动就已经撞墙了
+            this.ensureHistory();
             this.stack.refresh({ animate: false, preserveView: true });
             this.chromeSig = '';
             this.syncChrome(true);
@@ -1461,7 +1574,7 @@
           if (this.ticksInBar >= TerminalPage.TICKS_PER_BAR) {
             this.ticksInBar = 0;
             this.candles.push(this.makeBar(last.at + interval.ms));
-            if (this.candles.length > this.historyCount + TerminalPage.WARMUP) this.candles.shift();
+            this.trimHistory();
           }
           this.matchOrders();
           // 跟盘时把窗口重新钉到最后 count 根；用户自己动过视窗（follow=false）就原样保留
