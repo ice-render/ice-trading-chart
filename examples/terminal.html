@@ -422,7 +422,15 @@
         /** 标尺上滚轮一格的价格轴倍率（与引擎 `interaction.zoom.wheelFactor` 的默认值同口径）。 */
         static ZOOM_FACTOR = 1.2;
         static CHART_HEIGHT = 540;
-        static AXIS_CHARS = 8;
+        /**
+         * 刻度标签的定宽字符数（三块 pane 的右轴预留宽度靠它拉平）。
+         *
+         * ⚠️ 报价带两位小数之后标签变长了：`42300.00` 是 8 字符、六位数的价格就是 9 ——
+         * 预算不够长就不再补空格，三块 pane 的右轴宽度立刻不一样、绘图区当场错位。
+         */
+        static AXIS_CHARS = 9;
+        /** 报价小数位（价格轴刻度与提示框都用它，和页面自己的价签口径一致）。 */
+        static PRICE_PRECISION = 2;
         static BASE_PRICE = 42000;
         /** 盘口每侧的档数（组件默认也是 10）。 */
         static LEVELS = 10;
@@ -439,7 +447,7 @@
         /** 显示精度：报价一律两位小数（终端的展示口径，与数据精度无关）。 */
         static price(value) {
           if (value === null || value === undefined || !isFinite(value)) return '-';
-          return ICETradingChart.formatPrice(Math.round(value * 100) / 100);
+          return ICETradingChart.formatPrice(value, TerminalPage.PRICE_PRECISION);
         }
 
         static pct(value) {
@@ -1058,7 +1066,13 @@
           this.stack = ICETradingChart.createPaneStack(
             document.getElementById('panes'),
             [
-              { id: 'price', primary: true, weight: 5, option: () => this.priceOption, extras: { autoVolume: false } },
+              {
+                id: 'price',
+                primary: true,
+                weight: 5,
+                option: () => this.priceOption,
+                extras: { autoVolume: false, pricePrecision: TerminalPage.PRICE_PRECISION },
+              },
               { id: 'volume', weight: 2, option: () => this.volumeOption },
               { id: 'indicator', weight: 2, option: () => this.indicatorPaneOption },
             ],

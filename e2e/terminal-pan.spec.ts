@@ -585,6 +585,36 @@ test.describe('K 线终端示例页', () => {
     }
   });
 
+  test('价格轴刻度带两位小数（价签 / 抬头同口径），三块 pane 仍然等宽对齐', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    const state = await tickState(page);
+    // 标签都是「整数部分.两位小数」
+    for (const label of state.labels) {
+      expect(label.trim(), `刻度 ${label}`).toMatch(/^\d+\.\d{2}$/);
+    }
+    expect(state.aligned, '标签变长也没把三块 pane 挤歪').toBe(true);
+
+    // 缩细之后仍然是两位小数（不是「只在整数刻度上加小数」）
+    await dragRulerUp(page, 'price', 140);
+    const zoomed = await tickState(page);
+    for (const label of zoomed.labels) {
+      expect(label.trim(), `缩放后刻度 ${label}`).toMatch(/^\d+\.\d{2}$/);
+    }
+    expect(zoomed.aligned).toBe(true);
+
+    // 最新的价签是同一口径（页面自己画的那些也是两位小数）
+    const tag = await page.evaluate(() => document.querySelector('.tag.last')!.textContent);
+    expect(tag).toMatch(/^\d+\.\d{2}$/);
+
+    // 指针进绘图区：准星价签 + 抬头 OHLC 也走同一份格式化
+    const center = await paneCenter(page);
+    await page.mouse.move(center.x, center.y);
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => document.querySelector('.tag.price')!.textContent)).toMatch(/^\d+\.\d{2}$/);
+    expect(await page.evaluate(() => document.querySelector('.ohlc [data-k="close"]')!.textContent)).toMatch(/^\d+\.\d{2}$/);
+  });
+
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {
     await dragVertical(page, 'price', 160);
     const after = await snapshot(page);

@@ -1,5 +1,8 @@
 /** 数字格式化。抬头、价签、提示框共用一份，避免同一个数在页面里出现两种写法。 */
 
+/** 价格的默认小数位（报价口径：两位小数，与大多数撮合所的 tick 精度一致）。 */
+export const DEFAULT_PRICE_PRECISION = 2;
+
 /** 去掉尾随的 0 与孤立的小数点（32.10 → 32.1，32.00 → 32）。 */
 function trim(value: number, digits: number): string {
   const fixed = value.toFixed(digits);
@@ -7,9 +10,19 @@ function trim(value: number, digits: number): string {
   return fixed.replace(/0+$/, '').replace(/\.$/, '');
 }
 
-/** 价格：最多 6 位小数，去掉尾随的 0。 */
-export function formatPrice(value: number): string {
+/**
+ * 价格格式化。
+ *
+ * - **给了 `precision`**（整数 0~8）：固定小数位，**不**去尾随 0 —— 价格轴刻度、价签、
+ *   提示框要的是「同一竖列对齐的报价」，`42300` 与 `42300.5` 混在一起反而难读；
+ * - 不给：最多 6 位小数并去掉尾随 0（老口径，量级跨度大的场景仍然好用）。
+ */
+export function formatPrice(value: number, precision?: number): string {
   if (!isFinite(value)) return '-';
+  const digits = Number(precision);
+  if (precision !== undefined && precision !== null && isFinite(digits)) {
+    return value.toFixed(Math.min(8, Math.max(0, Math.round(digits))));
+  }
   return trim(value, 6);
 }
 

@@ -32,6 +32,8 @@ export interface OhlcTooltipOptions {
   seriesOption?: CandleFieldOptions;
   /** 成交量系列 id。给了才会追加「量」行，并按成交量格式化。 */
   volumeSeriesId?: string;
+  /** 四个价的小数位（不给就按 `formatPrice` 的老口径：最多 6 位、去尾随 0）。 */
+  pricePrecision?: number;
 }
 
 /**
@@ -47,6 +49,7 @@ export interface OhlcTooltipOptions {
 export function createOhlcTooltipFormatter(options: OhlcTooltipOptions = {}) {
   const text = { ...DEFAULT_CANDLE_LABELS, ...(options.labels || {}) };
   const seriesOption = options.seriesOption || {};
+  const precision = options.pricePrecision;
   return function ohlcFormatter(
     params: TooltipParams
   ): { rows: Array<{ name: string; value: string; color: string }> } | undefined {
@@ -57,10 +60,10 @@ export function createOhlcTooltipFormatter(options: OhlcTooltipOptions = {}) {
     if (!ohlc) return undefined;
     const color = hit.color;
     const rows = [
-      { name: text.open, value: formatPrice(ohlc[0]), color },
-      { name: text.high, value: formatPrice(ohlc[3]), color },
-      { name: text.low, value: formatPrice(ohlc[2]), color },
-      { name: text.close, value: formatPrice(ohlc[1]), color },
+      { name: text.open, value: formatPrice(ohlc[0], precision), color },
+      { name: text.high, value: formatPrice(ohlc[3], precision), color },
+      { name: text.low, value: formatPrice(ohlc[2], precision), color },
+      { name: text.close, value: formatPrice(ohlc[1], precision), color },
     ];
     if (options.volumeSeriesId) {
       const volumeItem = items.find((item) => item.seriesId === options.volumeSeriesId);

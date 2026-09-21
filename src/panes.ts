@@ -1,7 +1,8 @@
 import { DARK_CHART_THEME, LIGHT_CHART_THEME, createChart, linkCharts } from '@damoqiongqiu/ice-chart';
 import type { AxisOption, ChartOption, ChartTheme, ICEChart } from '@damoqiongqiu/ice-chart';
 import type { ChartLinkHandle } from '@damoqiongqiu/ice-chart';
-import { createTradingChart, toTradingOption } from './chart';
+import { toTradingOption } from './chart';
+import { registerTradingSeries } from './register';
 import { resolveDpr } from './device';
 import type { TradingChartOption } from './types';
 
@@ -260,6 +261,8 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
   const host = container;
   const created: Array<{ spec: PaneSpec; holder: HTMLDivElement; canvas: HTMLCanvasElement; chart: ICEChart; current: ChartOption }> = [];
 
+  // candlestick 是自定义系列：注册一次（幂等），之后每块画布都走 createChart
+  registerTradingSeries();
   host.style.position = host.style.position || 'relative';
 
   /**
@@ -284,17 +287,27 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     });
   };
 
-  /** 把一格的 option 求值 + 注入「等宽主题 + 定宽刻度 + 刻度密度」。 */
+  /**
+   * 把一格的 option 求值 → 补交易语义（primary 走 `toTradingOption`）→ 注入
+   * 「等宽主题 + 定宽刻度 + 刻度密度」。
+   *
+   * ⚠️ 顺序不能反：定宽 formatter 是**包在外层**的，必须包在**最终**那个 formatter 上 ——
+   * 先包一层空壳、再让 `toTradingOption` 往里塞报价精度（`pricePrecision`），
+   * 它看到「已经有 formatter 了」就会让路，两位数小数就永远加不上（实测踩到）。
+   */
   const prepareOption = (
     spec: PaneSpec,
     override?: ChartOption | TradingChartOption,
     length = 0,
     views: Array<[number, number] | null> = []
   ): ChartOption => {
-    const raw = (override || (typeof spec.option === 'function' ? spec.option() : spec.option)) as ChartOption;
-    const axes = alignAxes(raw, chars, length, tickSpacing, views);
+    const raw = (override || (typeof spec.option === 'function' ? spec.option() : spec.option)) as TradingChartOption;
+    const trading = spec.primary
+      ? toTradingOption(raw, (spec.extras || {}) as never)
+      : (raw as ChartOption);
+    const axes = alignAxes(trading, chars, length, tickSpacing, views);
     return {
-      ...raw,
+      ...trading,
       theme,
       yAxis: axes.length === 1 ? axes[0] : axes,
     };
@@ -323,12 +336,10 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     holder.appendChild(canvas);
     host.appendChild(holder);
 
+    // `prepareOption` 里已经补过交易语义（primary 走 toTradingOption），这里统一 createChart ——
+    // 再走一遍 createTradingChart 等于把补过的语义又补一次（工具提示 formatter 那层的判断会变得绕）。
     const prepared = prepareOption(spec);
-    // primary 走 createTradingChart（内部会再补一层交易语义：yField / 影线量程 / 提示框），
-    // 其余 pane 直接 createChart —— 副图不需要 K 线那套补齐。
-    const chart = spec.primary
-      ? createTradingChart(canvas, prepared as TradingChartOption, (spec.extras || {}) as never, { dpr })
-      : createChart(canvas, prepared, { dpr });
+    const chart = createChart(canvas, prepared, { dpr });
 
     created.push({ spec, holder, canvas, chart, current: prepared });
   });
@@ -358,11 +369,7 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
       animate: applyOptions && applyOptions.animate !== undefined ? applyOptions.animate : false,
       preserveView: applyOptions && applyOptions.preserveView !== undefined ? applyOptions.preserveView : true,
     };
-    if (entry.spec.primary) {
-      entry.chart.setOption(toTradingOption(prepared as TradingChartOption, (entry.spec.extras || {}) as never), options);
-    } else {
-      entry.chart.setOption(prepared, options);
-    }
+    entry.chart.setOption(prepared, options);
   };
 
   const refresh = (applyOptions?: { animate?: boolean | 'enter' | 'update'; preserveView?: boolean }) => {
@@ -375,14 +382,7 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     if (!entry) return;
     const prepared = prepareOption(entry.spec, option, plotHeightOf(entry), viewAxesOf(entry));
     entry.current = prepared;
-    if (entry.spec.primary) {
-      entry.chart.setOption(toTradingOption(prepared as TradingChartOption, (entry.spec.extras || {}) as never), {
-        animate: false,
-        preserveView: true,
-      });
-    } else {
-      entry.chart.setOption(prepared, { animate: false, preserveView: true });
-    }
+    entry.chart.setOption(prepared, { animate: false, preserveView: true });
   };
 
   /**

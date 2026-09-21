@@ -50,7 +50,7 @@ export type {
   DrawingLayerOptions,
   DrawingPoint,
 } from './drawing';
-export { formatPct, formatPrice, formatSigned, formatVolume } from './format';
+export { DEFAULT_PRICE_PRECISION, formatPct, formatPrice, formatSigned, formatVolume } from './format';
 export { readOhlc, hasOhlc, CANDLE_FIELDS } from './ohlc';
 export { plotRect, priceToY, yToPrice, categoryToX, xToCategoryIndex } from './project';
 export { createOhlcReadout } from './readout';

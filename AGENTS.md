@@ -382,6 +382,23 @@ pane 栈在 `alignAxes` 里给**没写 `tickCount`** 的 y 轴补上。四条坑
 `e2e/terminal-pan.spec.ts` 的「刻度密度」那条（默认档数 ≥ 8、一档 19~47px、
 缩放后仍然稳、三块 pane 等宽）。
 
+## 报价精度（小数位）与补位预算
+
+`TradingChartExtras.pricePrecision` 给价格轴装一个**固定小数位**的 formatter
+（`formatPrice(value, 2)` → `41800.00`，**不去尾随 0**：价格轴要的是一列对齐的报价），
+提示框里的四个价也走同一个精度。不给就保持引擎原来的自适应写法（整数刻度写整数）。
+示例页传 2，页面自己画的价签 / 抬头也走 `formatPrice(v, 2)`，四处口径一致。
+
+三个必须记住的点：
+
+- ⚠️ **`toTradingOption` 必须在 `alignAxes` 之前**。pane 栈的定宽 formatter 是**包在外层**的，
+  先包一层空壳再让 `toTradingOption` 往轴上塞报价精度，它会看到「已经有 formatter」而让路 ——
+  两位小数永远加不上（实测踩到，e2e「价格轴刻度带两位小数」守着）。
+- **补位预算 `axisLabelChars` 要跟着加长**：`41800.00` 是 8 字符、六位数价格就是 9，
+  预算不够就不再补空格，三块 pane 的右轴宽度立刻不一样（示例页从 8 提到 9，实测三块绘图区
+  仍是 12 / 833）。
+- `pricePrecision` 只动**第一根 y 轴**（价格轴）与提示框；用户自己写了 `yAxis.formatter` 时不覆盖。
+
 ## 类目轴取「最近类目」要用 invert 而不是 indexAt
 
 `BandScale` 的类目带之间有 `paddingInner`（默认 0.2）的**空隙**，`indexAt` 落在空隙里返回 -1

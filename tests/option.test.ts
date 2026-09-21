@@ -1,6 +1,6 @@
 import { createChart } from '@damoqiongqiu/ice-chart';
 import type { ChartOption } from '@damoqiongqiu/ice-chart';
-import { registerTradingSeries, toTradingOption } from '../src/index';
+import { formatPrice, registerTradingSeries, toTradingOption } from '../src/index';
 import type { TradingChartOption } from '../src/types';
 
 const CANDLE: TradingChartOption = {
@@ -101,6 +101,54 @@ describe('toTradingOption', () => {
     });
     expect(option.tooltip).toBeUndefined();
     expect(option.yAxis).toBeUndefined();
+  });
+
+  it('pricePrecision：给价格轴装固定小数的 formatter，提示框也跟着用', () => {
+    const option = toTradingOption(CANDLE, { pricePrecision: 2 });
+    const axis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis!;
+    const format = axis.formatter as (value: unknown) => string;
+    expect(format(42300)).toBe('42300.00');
+    expect(format(42300.5)).toBe('42300.50');
+
+    // 提示框里的四个价同口径（同一份 `formatPrice`）
+    const formatter = option.tooltip!.formatter as any;
+    const rows = formatter({
+      items: [{ seriesType: 'candlestick', data: { x: 'D1', o: 100, c: 110, l: 95, h: 115 }, color: '#f00' }],
+    });
+    expect(rows.rows.map((row: any) => row.value)).toEqual(['100.00', '115.00', '95.00', '110.00']);
+  });
+
+  it('pricePrecision：不给就保持引擎的自适应写法（整数刻度写整数）', () => {
+    const option = toTradingOption(CANDLE);
+    const axis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis!;
+    expect(axis.formatter).toBeUndefined();
+  });
+
+  it('pricePrecision：用户自己写了 formatter 时不覆盖', () => {
+    const mine = () => 'x';
+    const option = toTradingOption({ ...CANDLE, yAxis: { name: '价格', formatter: mine } }, { pricePrecision: 2 });
+    const axis = Array.isArray(option.yAxis) ? option.yAxis[0] : option.yAxis!;
+    expect(axis.formatter).toBe(mine);
+  });
+});
+
+describe('formatPrice', () => {
+  it('给了小数位就固定位数（不去尾随 0）', () => {
+    expect(formatPrice(42300, 2)).toBe('42300.00');
+    expect(formatPrice(42300.5, 2)).toBe('42300.50');
+    expect(formatPrice(42300.456, 2)).toBe('42300.46');
+    expect(formatPrice(42300.456, 0)).toBe('42300');
+  });
+
+  it('不给小数位时保持老口径（最多 6 位、去尾随 0）', () => {
+    expect(formatPrice(42300)).toBe('42300');
+    expect(formatPrice(42300.5)).toBe('42300.5');
+    expect(formatPrice(0.00001234)).toBe('0.000012');
+  });
+
+  it('非数字给 `-`', () => {
+    expect(formatPrice(Number.NaN, 2)).toBe('-');
+    expect(formatPrice(Number.POSITIVE_INFINITY)).toBe('-');
   });
 });
 

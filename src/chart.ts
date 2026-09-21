@@ -2,6 +2,7 @@ import { createChart } from '@damoqiongqiu/ice-chart';
 import type { AxisOption, ChartOption, ICEChart, ICEChartOptions, SeriesOption, TooltipOption } from '@damoqiongqiu/ice-chart';
 import { computePriceRange } from './axisRange';
 import { resolveDpr } from './device';
+import { formatPrice } from './format';
 import { CANDLESTICK_TYPE, registerTradingSeries } from './register';
 import { createOhlcTooltipFormatter } from './tooltip';
 import type { CandleLabels, OhlcTooltipOptions } from './tooltip';
@@ -14,6 +15,14 @@ export interface TradingChartExtras {
   pricePadding?: number;
   /** 提示框里四个价（与量）的行名。 */
   priceLabels?: CandleLabels;
+  /**
+   * 报价的**小数位**（价格轴刻度 + 提示框里的四个价），例如 `2` → `42300.00`。
+   *
+   * 不给就保持引擎原来的自适应写法（整数刻度就写整数、最多 6 位小数、去尾随 0）。
+   * 给了就**固定位数、不去尾随 0** —— 价格轴要的是一列对齐的报价，
+   * `42300` 和 `42300.5` 混在一起反而难读。用户自己写了 `yAxis.formatter` 时不覆盖。
+   */
+  pricePrecision?: number;
   /**
    * 是否自动钉住价格轴范围，默认 `true`。
    *
@@ -112,6 +121,14 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
     }
   }
 
+  // 报价小数位：只填没写 formatter 的价格轴（用户自己格式化时不抢）
+  const precision = Number(extras.pricePrecision);
+  if (extras.pricePrecision !== undefined && isFinite(precision) && !axes[0].formatter) {
+    const digits = Math.min(8, Math.max(0, Math.round(precision)));
+    axes[0].formatter = (value: unknown) => formatPrice(Number(value), digits);
+    axesTouched = true;
+  }
+
   if (volumeSeries && volumeSource) {
     const axisIndex = volumeAxisIndexOf(volumeConfig || {});
     const volumeRange = computeVolumeRange(collectVolumes(volumeSource, volumeConfig || {}), (volumeConfig || {}).ratio);
@@ -145,6 +162,7 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
     const formatterOptions: OhlcTooltipOptions = {
       seriesOption: candleOption,
       labels: extras.priceLabels,
+      pricePrecision: extras.pricePrecision,
       volumeSeriesId: volumeSeries ? String(volumeSeries.id) : undefined,
     };
     // ice-chart 把 `tooltip.formatter` 的返回类型声明成了 `string | string[]`，

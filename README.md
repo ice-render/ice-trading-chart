@@ -185,7 +185,7 @@ book.setPalette({ upColor, downColor });                              // 换配�
 
 | 导出 | 用途 |
 | --- | --- |
-| `createTradingChart(target, option, extras?, chartOptions?)` | 建图（注册系列 + 补齐 option） |
+| `createTradingChart(target, option, extras?, chartOptions?)` | 建图（注册系列 + 补齐 option）；`extras.pricePrecision` 定报价小数位（价格轴刻度与提示框同口径） |
 | `toTradingOption(option, extras?)` | 只做 option 补齐，自己调 `createChart` 时用 |
 | `registerTradingSeries()` | 只注册 `candlestick` 系列（幂等） |
 | `readOhlc(raw, option?)` / `hasOhlc` | 数据项 → `[开, 收, 低, 高]` |
@@ -195,7 +195,7 @@ book.setPalette({ upColor, downColor });                              // 换配�
 | `createOhlcReadout(chart, { seriesId?, volume? })` | 光标 / 数据 → 一根 K 线的读数（抬头用） |
 | `plotRect` / `priceToY` / `yToPrice` / `categoryToX` / `xToCategoryIndex` | 画布内坐标投影（HTML 外壳对齐用） |
 | `resetAutoScale(chart)` / `zoomValueAxis(chart, { factor, anchorY })` / `beginValueAxisScale(chart, y)` + `applyValueAxisScale(chart, scale, y)` | 数值轴的视图控制：自适应（清掉手动 y 窗口，**x 窗口不动**）/ 以指针为锚点缩放 / 按下-拖动缩放（快照口径，拖回出发点即原样）。右侧标尺「双击 / 滚轮 / 上下拖」三个手势的落点 |
-| `formatPrice` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化 |
+| `formatPrice(value, precision?)` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化。`formatPrice` 给了 `precision` 就固定小数位、不去尾随 0（报价口径，`DEFAULT_PRICE_PRECISION = 2`） |
 | `CandlestickSeries` / `resolveCandleStyle` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与配色 |
 | `createPaneStack(container, specs, options)` | 真副图：多实例 + 联动 + 横向对齐 |
 | `axisTickCount(min, max, length, { spacing?, nice? })` | 按「轴长 ÷ 一档的最小像素」反推数值轴给几档刻度（pane 栈自动注入 `tickCount`，默认 5 档会明显偏稀） |
@@ -241,6 +241,7 @@ npm run build && npx http-server . -p 8102 -c-1
 | 图表顶部工具条 | 常显的收藏周期（一键切换）+ 四组下拉：**周期**（分组列表 / 星标收藏 / 自定义周期）、**指标**（主图叠加多选 + 副图单选）、**画线**、**显示**（涨跌配色 / 阳线空心） |
 | 图表右侧盘口 | `createOrderBook` 组件（每侧 10 档、深度条、点价填单） |
 | 数值轴刻度密度 | 价格轴默认就有 8~13 档（一档 19~47px），不再是引擎默认的 5 档 / 57~71px；密度按「轴长 ÷ 一档的最小像素」反推，缩放 / 平移 / 手动量程都会跟着重算，三块 pane 各自按自己的轴长给档数 |
+| 报价精度 | 刻度、最新价签、准星价签、抬头 OHLC 四处统一两位小数（`extras.pricePrecision = 2`）：`41800.00` 而不是 `41800`；刻度标签补位预算（`axisLabelChars`）跟着加宽到 9 字符，三块 pane 仍然等宽 |
 | 右上工具栏 | 暂停 / 继续（停行情推流）、重置（重新采样） |
 | 右侧下单面板 | 限价 / 市价、全仓 / 逐仓、杠杆滑块、止盈止损、只减仓 |
 | 底部三块 | 持仓表（未实现盈亏 / 保证金 / 强平价随现价动）、委托表（可撤单）、画线记录（数据坐标 JSON） |
