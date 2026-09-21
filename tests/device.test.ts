@@ -102,3 +102,51 @@ describe('蜡烛样式（resolveCandleStyle）', () => {
     expect(resolveCandleStyle(undefined).hollowUp).toBe(false);
   });
 });
+
+describe('蜡烛的水平对齐（影线必须严格在实体正中）', () => {
+  const original = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+
+  afterEach(() => {
+    if (original) Object.defineProperty(window, 'devicePixelRatio', original);
+  });
+
+  async function mountAt(dpr: number) {
+    Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true });
+    const canvas = document.createElement('canvas');
+    document.body.appendChild(canvas);
+    const chart = createTradingChart(canvas, OPTION);
+    await chart.render();
+    return chart;
+  }
+
+  for (const dpr of [1, 2, 3]) {
+    it(`dpr=${dpr}：影线中轴 = 实体中轴，且实体宽是整数设备像素`, async () => {
+      const chart = await mountAt(dpr);
+      const comp: any = chart.seriesComponents[0];
+      const series = chart.norm.series[0];
+      const scale = 1 / comp.unit();
+      const rects = comp.candleRects();
+      const bodyWidth = comp.resolveBodyWidth(chart.norm.xAxis.scale!.bandwidth());
+      const style = resolveCandleStyle(series.option);
+      const wickWidth = Math.max(comp.unit(), style.borderWidth * comp.unit() * chart.ice.dpr);
+
+      let checked = 0;
+      for (let i = 0; i < rects.length; i++) {
+        const rect = rects[i];
+        if (!rect) continue;
+        const cx = chart.norm.xAxis.scale!.map(series.points[i].xValue);
+        const geometry = comp.candleGeometry(cx, bodyWidth, wickWidth);
+        // 影线中轴与实体中轴完全重合（历史上这里稳定偏 0.5 个设备像素）
+        expect(geometry.wickX).toBeCloseTo(rect.x + rect.width / 2, 10);
+        // 实体宽落在整数设备像素上 → 填充边缘不发虚
+        const device = geometry.width * scale;
+        expect(Math.abs(device - Math.round(device))).toBeLessThan(1e-6);
+        // 影线宽与实体宽同奇偶 → 边缘恰好落在整数像素上
+        expect(Math.round(device) % 2).toBe(Math.max(1, Math.round(wickWidth * scale)) % 2);
+        checked += 1;
+      }
+      expect(checked).toBeGreaterThan(0);
+      chart.destroy();
+    });
+  }
+});

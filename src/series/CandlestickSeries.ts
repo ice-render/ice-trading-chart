@@ -57,14 +57,16 @@ export class CandlestickSeries extends SeriesBase {
     return -1;
   }
 
-  /** 每根蜡烛的外接矩形（影线 + 实体），本地坐标。 */
+  /** 每根蜡烛的外接矩形（影线 + 实体），本地坐标；与绘制共用同一套设备像素对齐。 */
   private candleRects(): Array<Rect | null> {
     const coord = this.coord;
     if (!coord) return [];
     const out: Array<Rect | null> = [];
     const option = this.candleOption;
+    const style = resolveCandleStyle(option);
     const bandWidth = coord.xScale.bandwidth() || coord.xScale.step() * 0.6;
     const bodyWidth = this.resolveBodyWidth(bandWidth);
+    const wickWidth = Math.max(this.unit(), style.borderWidth * this.cssUnit());
     for (let i = 0; i < this.series.points.length; i++) {
       const point = this.series.points[i];
       const ohlc = readOhlc(point.raw, option);
@@ -83,10 +85,11 @@ export class CandlestickSeries extends SeriesBase {
         out.push(null);
         continue;
       }
+      const geometry = this.candleGeometry(centerX, bodyWidth, wickWidth);
       out.push({
-        x: centerX - bodyWidth / 2,
+        x: geometry.left,
         y: Math.min(high, low),
-        width: bodyWidth,
+        width: geometry.width,
         height: Math.abs(low - high),
       });
     }
@@ -113,8 +116,31 @@ export class CandlestickSeries extends SeriesBase {
     return this.unit() * dpr;
   }
 
-  /** 把坐标对齐到设备像素边界（填充用；线用基类的 `snap`，它对齐的是像素中心）。 */
-  private snapFill(value: number): number {
+  /**
+   * 一根蜡烛的**设备像素级几何**：影线中轴 + 实体矩形。绘制与命中共用同一份，
+   * 免得「画出来的」和「点得到的」分叉。
+   *
+   * 两条对齐规则：
+   * 1. **影线打在设备像素中心**：线宽是奇数个设备像素时中心取半像素（经典的 1px 细线对齐），
+   *    偶数个设备像素时中心取整数像素 —— 否则线会糊成两像素灰边。
+   * 2. **实体宽取与影线同奇偶**的设备像素数：这样左右边缘落在整数像素上（填充清晰），
+   *    而且严格以影线为中轴。
+   *
+   * 早先的实现是「实体左右边缘各自四舍五入 + 影线单独 `snap()`」，两套取整各偏半个像素，
+   * 合起来**根根蜡烛都歪 0.5 设备像素**（实测 meanAbs = maxAbs = 0.5），看着很诡异。
+   */
+  private candleGeometry(centerX: number, bodyWidth: number, wickWidth: number) {
+    const scale = 1 / this.unit(); // 设备像素 / ctx 单位
+    const wickDevice = Math.max(1, Math.round(wickWidth * scale));
+    const parity = wickDevice % 2;
+    const wickX = (Math.round(centerX * scale) + (parity ? 0.5 : 0)) / scale;
+    let bodyDevice = Math.max(1, Math.round(bodyWidth * scale));
+    if (bodyDevice % 2 !== parity) bodyDevice += 1;
+    return { left: wickX - bodyDevice / scale / 2, width: bodyDevice / scale, wickX };
+  }
+
+  /** 纵向对齐到设备像素边界（实体上下沿与影线端点用）。 */
+  private snapRow(value: number): number {
     const scale = 1 / this.unit();
     return Math.round(value * scale) / scale;
   }
@@ -161,17 +187,17 @@ export class CandlestickSeries extends SeriesBase {
       const lerp = (target: number) => yMid + (target - yMid) * p;
 
       const yCloseAnimated = lerp(yClose);
-      const left = this.snapFill(centerX - bodyWidth / 2);
-      const right = this.snapFill(centerX + bodyWidth / 2);
-      const top = this.snapFill(Math.min(yOpen, yCloseAnimated));
-      const bottom = this.snapFill(Math.max(yOpen, yCloseAnimated));
-      const width = Math.max(1, right - left);
+      const top = this.snapRow(Math.min(yOpen, yCloseAnimated));
+      const bottom = this.snapRow(Math.max(yOpen, yCloseAnimated));
       const height = Math.max(1, bottom - top);
+      const geometry = this.candleGeometry(centerX, bodyWidth, borderWidth);
+      const left = geometry.left;
+      const width = geometry.width;
 
       // 影线：**只画实体上下两段**，不从实体中间穿过去。
       // 实心实体虽然会盖住中间那段，但空心阳线会把中间露出来 —— 一条竖线穿过蜡烛正中，
-      // 看起来像画错了。对齐到设备像素中心 + butt 端头，1px 线才不发虚、也不像胶囊。
-      const wickX = this.snap(centerX);
+      // 看起来像画错了。水平位置取自 candleGeometry，与实体严格同轴。
+      const wickX = geometry.wickX;
       ctx.beginPath();
       ctx.moveTo(wickX, lerp(yHigh));
       ctx.lineTo(wickX, top);
