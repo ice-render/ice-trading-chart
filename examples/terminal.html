@@ -493,6 +493,13 @@
         /** 最新一根之后的未来空位（视窗往左越过最新数据时看到的空白）。 */
         futureSlots = [];
         /**
+         * 缩放时右端的闸门：**本轮视窗到过的最右位置**（池子下标）。
+         *
+         * `null` = 还没记过（按「最新一根」算）。平移 / 回到最新会把它刷成当前右端 ——
+         * 缩放只许向左让，不许比它更靠右（见 `anchorRightOnZoom`）。
+         */
+        zoomRightCap = null;
+        /**
          * 是否**跟盘**：新的 K 出来时把窗口钉在最后 `count` 根上。
          *
          * 为什么必须有这个状态：窗口一旦被锚在「左端某一根」上，那根要被移出数据要等
@@ -1002,6 +1009,7 @@
             this.candles.push(this.makeBar(now - (history - 1 - i) * interval.ms));
           }
           this.futureSlots = [];
+          this.zoomRightCap = null;
           this.ensureFutureSlots();
         }
 
@@ -1545,14 +1553,60 @@
          */
         bindViewSync() {
           for (const chart of this.stack.charts) {
-            for (const name of ['pan:change', 'zoom:change']) {
+            chart.on('pan:change', () => {
               // 用户自己动过视窗 → 立刻退出跟盘（否则下一根 K 出来就把他的视窗拽回去）
-              chart.on(name, () => {
-                this.setFollow(false);
-                this.scheduleViewRefresh();
-              });
-            }
+              this.setFollow(false);
+              this.syncZoomRightCap();
+              this.scheduleViewRefresh();
+            });
+            chart.on('zoom:change', () => {
+              this.setFollow(false);
+              this.anchorRightOnZoom();
+              this.scheduleViewRefresh();
+            });
           }
+        }
+
+        /** 记住「本轮视窗到过的最右位置」（缩放不许越过它，见 `anchorRightOnZoom`）。 */
+        syncZoomRightCap() {
+          const domain = this.stack ? this.stack.chartOf('price').getDomain('x') : null;
+          if (!domain || domain.length < 2) return;
+          const right = this.poolIndexOf(domain[domain.length - 1]);
+          if (right >= 0) this.zoomRightCap = right;
+        }
+
+        /**
+         * 缩小时**不许凭空长出未来空位**。
+         *
+         * 滚轮缩放绕指针锚定，窗口往两边一起长 —— 停在最新一根上缩小时，右半边会一路长进
+         * 那 600 个未来空位里，画面右半变成一片空白（实测缩到底：3565 根里 2400 根是空位，
+         * 一根都占不到一个像素）。主流看盘软件不是这样：缩小时最新那根始终贴在最右边，
+         * 多出来的是**历史**。所以这里给右端加一条闸门：`cap = max(本轮右端, 最新一根)`，
+         * 超了就整窗左移（跨度不变，正好是「往左看更多历史」）。
+         *
+         * 为什么不是把右端一律钉死在最新一根：用户可能**自己拖进空位**在看未来，
+         * 缩小时不该把他拽回去 —— 闸门只拦「比之前更靠右」（`zoomRightCap` 由平移刷新）。
+         * 同理也不拦 `pan:change`：往左拖进空位正是「未来空位」这个功能本身。
+         */
+        anchorRightOnZoom() {
+          const chart = this.stack.chartOf('price');
+          const domain = chart.getDomain('x');
+          if (!domain || domain.length < 2) return;
+          const right = this.poolIndexOf(domain[domain.length - 1]);
+          if (right < 0) return;
+          const newest = this.candles.length - 1;
+          const cap = Math.max(this.zoomRightCap === null ? newest : this.zoomRightCap, newest);
+          if (right <= cap) {
+            this.zoomRightCap = Math.max(cap, right);
+            return;
+          }
+          const count = domain.length;
+          const left = Math.max(0, cap - count + 1);
+          const rows = this.poolSlice(left, Math.min(left + count, this.candles.length + this.futureSlots.length));
+          if (rows.length < 2) return;
+          this.zoomRightCap = cap;
+          chart.silent(() => chart.setDomain('x', [rows[0].x, rows[rows.length - 1].x]));
+          this.stack.syncDomains();
         }
 
         setFollow(next, hint) {
@@ -1565,6 +1619,7 @@
         /** 回到跟盘：重新按「最后 count 根」开窗，并恢复自动量程。 */
         resumeFollow() {
           this.follow = true;
+          this.zoomRightCap = null;
           document.getElementById('btn-latest').style.display = 'none';
           this.chromeSig = '';
           // 分两步：先让图表拿到「最右端那段数据」（此刻视窗还停在老历史里，

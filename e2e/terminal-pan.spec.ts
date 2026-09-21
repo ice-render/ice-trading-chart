@@ -99,6 +99,71 @@ async function dragLeft(page: Page, pixels: number) {
   await page.waitForTimeout(400);
 }
 
+/** 在主图上滚 `ticks` 次滚轮（`delta < 0` = 放大）。 */
+async function wheel(page: Page, ticks: number, delta: number) {
+  const at = await paneCenter(page);
+  await page.mouse.move(at.x, at.y);
+  for (let i = 0; i < ticks; i++) {
+    await page.mouse.wheel(0, delta);
+    await page.waitForTimeout(24);
+  }
+  await page.waitForTimeout(350);
+}
+
+/** 绘图区宽度 + 每根占多少像素 + 三块 pane 的窗口。 */
+async function zoomState(page: Page) {
+  return page.evaluate(() => {
+    const pg = (window as any).__page;
+    const chart = pg.stack.chartOf('price');
+    const domain = chart.getDomain('x') || [];
+    const plot = chart.layout.plot;
+    const panes: Record<string, string> = {};
+    for (const id of ['price', 'volume', 'indicator']) {
+      const d = pg.stack.chartOf(id).getDomain('x') || [];
+      panes[id] = `${d.length}|${d[0]}|${d[d.length - 1]}`;
+    }
+    const index = (key: string) => pg.poolIndexOf(key);
+    return {
+      count: domain.length,
+      spacing: plot.width / Math.max(1, domain.length),
+      plotWidth: plot.width,
+      right: index(domain[domain.length - 1]),
+      newest: pg.candles.length - 1,
+      panes,
+      aligned: panes.price === panes.volume && panes.price === panes.indicator,
+      // x 轴标签带里「有墨的连续段」：糊成一条色带时只剩 1 段
+      labelRuns: (() => {
+        const bottom = pg.stack.chartOf('indicator');
+        const c = bottom.ice.canvasEl;
+        const ctx = c.getContext('2d');
+        const dpr = pg.dpr || 1;
+        const p = bottom.layout.plot;
+        const y0 = Math.round((p.y + p.height + 6) * dpr);
+        const h = Math.max(1, Math.round(14 * dpr));
+        const x0 = Math.round(p.x * dpr);
+        const w = Math.round(p.width * dpr);
+        const data = ctx.getImageData(x0, y0, w, h).data;
+        let runs = 0;
+        let gap = 999;
+        for (let cx = 0; cx < w; cx++) {
+          let ink = 0;
+          for (let cy = 0; cy < h; cy++) {
+            const i = (cy * w + cx) * 4;
+            if (data[i] > 90 || data[i + 1] > 90 || data[i + 2] > 90) ink++;
+          }
+          if (ink > 0) {
+            if (gap >= Math.round(4 * dpr)) runs++;
+            gap = 0;
+          } else {
+            gap++;
+          }
+        }
+        return runs;
+      })(),
+    };
+  });
+}
+
 test.describe('K 线终端示例页', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto(PAGE, { waitUntil: 'load' });
@@ -177,5 +242,30 @@ test.describe('K 线终端示例页', () => {
     expect(home.panes.price.last).toBe(home.newestKey);
     expect(home.panes.price.n).toBeGreaterThan(50);
     expect(home.visibleReal).toBe(home.panes.price.n);
+  });
+
+  test('缩放有上下限：最密 0.5px/根、最粗半幅一根；且不许凭空长出未来空位', async ({ page }) => {
+    const start = await zoomState(page);
+
+    // ① 探底：连缩 40 格
+    await wheel(page, 40, +120);
+    const out = await zoomState(page);
+    expect(out.count, '缩小要真的生效').toBeGreaterThan(start.count);
+    expect(out.spacing, '最密不许低于 0.5px/根').toBeGreaterThanOrEqual(0.5 - 1e-6);
+    expect(out.count, '不得越过 minBarSpacing 对应的根数').toBeLessThanOrEqual(Math.floor(out.plotWidth / 0.5) + 1);
+    // 右端不许长进未来空位：缩小时看到的是更多历史，不是一片空白
+    expect(out.right, '缩小时右端不许越过最新一根').toBeLessThanOrEqual(out.newest + 1);
+    // 三块 pane 依然同窗
+    expect(out.aligned, '缩到底时三块 pane 仍要同窗').toBe(true);
+    // x 轴标签不能糊成一条色带（糊了的话整条带子只有 1 段连续墨迹）
+    expect(out.labelRuns, '轴标签要抽稀成多段，不是一条色带').toBeGreaterThan(3);
+
+    // ② 探顶：连放 40 格
+    await wheel(page, 40, -120);
+    const back = await zoomState(page);
+    expect(back.count, '放到底最少两根').toBeGreaterThanOrEqual(2);
+    expect(back.spacing, '最粗不许超过半幅一根').toBeLessThanOrEqual(back.plotWidth / 2 + 1e-6);
+    expect(back.aligned, '放到头时三块 pane 仍要同窗').toBe(true);
+    expect(back.labelRuns).toBeGreaterThan(1);
   });
 });
