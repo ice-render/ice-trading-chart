@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>ice-trading-chart · K 线</title>
+    <style>
+      :root {
+        --bg: #0e1116;
+        --panel: #161b22;
+        --line: #232a33;
+        --text: #d5dae1;
+        --muted: #7d8794;
+        --accent: #f5a524;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 28px;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.7 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      h1 { font-size: 20px; margin: 0 0 6px; }
+      .lead { color: var(--muted); max-width: 820px; margin: 0 0 18px; }
+      .lead code { color: var(--accent); }
+      .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+      button {
+        background: var(--panel);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); color: var(--accent); }
+      button.primary { background: var(--accent); color: #1b1204; border-color: var(--accent); font-weight: 600; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+      .log {
+        margin-top: 14px;
+        height: 132px;
+        overflow: auto;
+        white-space: pre-wrap;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>K 线</h1>
+    <p class="lead">
+      数据项是 <code>{ x, o, c, l, h }</code>（也认 <code>[开, 收, 低, 高]</code> 数组）。
+      四个价由系列组件从原始数据项自己解析，影线（low / high）会被算进价格轴范围 ——
+      否则影线会被裁掉。命中判定按蜡烛的外接矩形（含影线），提示框给出完整 OHLC。
+      数据项字段名可以用 <code>openField / closeField / lowField / highField</code> 改。
+    </p>
+    <div class="toolbar">
+      <button class="primary" id="btn-toggle">暂停</button>
+      <button id="btn-step">追加一根</button>
+      <button id="btn-range">价格轴自适应：开</button>
+      <button id="btn-reset">重置</button>
+    </div>
+    <div class="card"><canvas id="chart" width="1120" height="440"></canvas></div>
+    <div class="card log" id="log">悬停某根蜡烛看提示框；事件日志：</div>
+    <script src="../node_modules/ice-render/dist/index.umd.js"></script>
+    <script src="../node_modules/@damoqiongqiu/ice-chart/dist/index.umd.js"></script>
+    <script src="../dist/index.umd.js"></script>
+    <script>
+      class CandlestickPage {
+        static COUNT = 60;
+        static TICK = 700;
+        static LABELS = ['一', '二', '三', '四', '五', '六', '日'];
+
+        candles = [];
+        chart = null;
+        running = true;
+        timer = null;
+        autoRange = true;
+        price = 100;
+        seq = 0;
+
+        constructor() {
+          this.seed();
+          this.mount();
+          this.bindEvents();
+          this.start();
+        }
+
+        seed() {
+          this.candles = [];
+          this.seq = 0;
+          for (let i = 0; i < CandlestickPage.COUNT; i++) this.pushCandle();
+        }
+
+        nextBar() {
+          const open = this.price;
+          const close = Math.max(20, open + (Math.random() - 0.48) * 6);
+          const high = Math.max(open, close) + Math.random() * 3;
+          const low = Math.min(open, close) - Math.random() * 3;
+          this.price = close;
+          this.seq += 1;
+          return {
+            x: `${CandlestickPage.LABELS[this.seq % CandlestickPage.LABELS.length]}${this.seq}`,
+            o: Number(open.toFixed(2)),
+            c: Number(close.toFixed(2)),
+            l: Number(low.toFixed(2)),
+            h: Number(high.toFixed(2)),
+          };
+        }
+
+        pushCandle() {
+          this.candles.push(this.nextBar());
+          if (this.candles.length > CandlestickPage.COUNT) this.candles.shift();
+        }
+
+        get option() {
+          return {
+            title: { text: '日 K（随机游走）', subtext: '影线进价格轴范围 · 每 700ms 追加一根' },
+            theme: 'dark',
+            legend: { show: false },
+            tooltip: { trigger: 'item' },
+            crosshair: { show: true, axis: 'x', showAxisLabel: true },
+            xAxis: { type: 'category' },
+            yAxis: { name: '价格' },
+            series: [
+              {
+                id: 'k',
+                type: 'candlestick',
+                name: 'K 线',
+                data: this.candles.slice(),
+                barWidth: 0.62,
+                candle: { upColor: '#EF4444', downColor: '#10B981', borderWidth: 1 },
+              },
+            ],
+          };
+        }
+
+        get extras() {
+          return { autoPriceRange: this.autoRange, priceLabels: { open: '开', close: '收', low: '低', high: '高' } };
+        }
+
+        mount() {
+          this.chart = ICETradingChart.createTradingChart('chart', this.option, this.extras);
+          this.chart.on('item:hover', (p) => {
+            const d = p.data;
+            this.write(`${p.xValue}  开${d.o} 收${d.c} 低${d.l} 高${d.h}`);
+          });
+        }
+
+        onUpdate() {
+          if (!this.chart) return;
+          // 走 toTradingOption 把价格轴范围重新钉一遍 —— 数据变了量程就该跟着走。
+          // setOption 是**合并**，所以每次都传完整 option，并保留当前缩放窗口。
+          this.chart.setOption(ICETradingChart.toTradingOption(this.option, this.extras), { preserveView: true });
+        }
+
+        bindEvents() {
+          document.getElementById('btn-toggle').addEventListener('click', () => this.toggle());
+          document.getElementById('btn-step').addEventListener('click', () => {
+            this.pushCandle();
+            this.onUpdate();
+          });
+          document.getElementById('btn-range').addEventListener('click', () => this.toggleRange());
+          document.getElementById('btn-reset').addEventListener('click', () => {
+            this.seed();
+            this.onUpdate();
+            this.write('已重置');
+          });
+        }
+
+        start() {
+          this.timer = setInterval(() => this.step(), CandlestickPage.TICK);
+        }
+
+        step() {
+          if (!this.running) return;
+          this.pushCandle();
+          this.onUpdate();
+        }
+
+        toggle() {
+          this.running = !this.running;
+          document.getElementById('btn-toggle').textContent = this.running ? '暂停' : '继续';
+        }
+
+        toggleRange() {
+          this.autoRange = !this.autoRange;
+          document.getElementById('btn-range').textContent = `价格轴自适应：${this.autoRange ? '开' : '关'}`;
+          this.onUpdate();
+        }
+
+        write(line) {
+          const log = document.getElementById('log');
+          log.textContent = `${new Date().toLocaleTimeString()}  ${line}\n` + log.textContent;
+        }
+      }
+
+      window.__page = new CandlestickPage();
+    </script>
+  </body>
+</html>

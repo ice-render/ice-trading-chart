@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # 上游（@damoqiongqiu/ice-chart 与 ice-render）走 npm 依赖（peer + dev）。
+      # 想连源码一起测：把 devDependencies 里那两条改成 file:../ice-chart / file:../ice-render，
+      # 并把对应仓库克隆到同级目录。
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+      - name: 全量门禁
+        run: npm run verify
