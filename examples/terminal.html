@@ -669,7 +669,6 @@
             // 白白在柱子上方留出一大块空档。关掉 nice、自己给一个 4% 的余量。
             yAxis: {
               position: 'right',
-              tickCount: 2,
               nice: false,
               min: 0,
               max: this.volumeAxisMax,
@@ -690,7 +689,7 @@
               crosshair: { ...TerminalPage.CROSSHAIR, lineColor: TerminalPage.RULER_COLOR },
               xAxis: { type: 'category', formatter: (value) => this.displayLabel(value) },
               margin: { top: 2, right: 16, bottom: 0, left: 12 },
-              yAxis: { position: 'right', tickCount: 3, nice: false, min: 0, max: 100 },
+              yAxis: { position: 'right', nice: false, min: 0, max: 100 },
               series: built.series.concat(this.blankAnchor),
               annotation: built.annotation,
             };
@@ -711,7 +710,6 @@
             margin: { top: 2, right: 16, bottom: 0, left: 12 },
             yAxis: {
               position: 'right',
-              tickCount: 3,
               nice: false,
               min: range ? range.min : undefined,
               max: range ? range.max : undefined,
@@ -1717,7 +1715,12 @@
         onViewChange(kind) {
           const chart = this.stack ? this.stack.chartOf('price') : null;
           if (!chart) return;
-          if (this.xKey(chart.getDomain('x')) === this.viewKey) return;
+          if (this.xKey(chart.getDomain('x')) === this.viewKey) {
+            // 只动了数值轴：跟盘不退出，但**刻度密度要按新窗口重算**
+            // （档数是按「绘图区高度 ÷ 一档的最小像素」反推的，窗口一变就得跟着变）
+            this.scheduleViewRefresh();
+            return;
+          }
           if (kind === 'zoom') this.anchorRightOnZoom();
           else this.syncZoomRightCap();
           this.setFollow(false);

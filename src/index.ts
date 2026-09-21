@@ -32,9 +32,11 @@ export {
   stdev,
 } from './indicators';
 export {
+  axisTickCount,
   createPaneStack,
   fixedWidthAxisFormatter,
   DEFAULT_AXIS_LABEL_CHARS,
+  DEFAULT_AXIS_TICK_SPACING,
   PANE_FONT_FAMILY,
 } from './panes';
 export type { PaneSpec, PaneStack, PaneStackOptions } from './panes';

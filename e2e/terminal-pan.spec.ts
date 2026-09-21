@@ -170,23 +170,40 @@ async function dragRulerUp(page: Page, id: string, pixels: number, steps = 16) {
   await page.waitForTimeout(250);
 }
 
-/** 数值轴的刻度：步长（最小相邻差）、标签、以及三块 pane 的绘图区是否等宽对齐。 */
+/**
+ * 数值轴的刻度：步长（数据单位）、**一档占多少像素**、档数、标签、以及三块 pane 的绘图区是否等宽对齐。
+ *
+ * 像素间距按「首尾两个刻度之间的实际像素 ÷ 间隔数」算 —— 刻度不一定铺满整个数据域
+ * （引擎会给数据域留边），直接用轴长 ÷ (档数-1) 会偏。
+ */
 async function tickState(page: Page) {
   return page.evaluate(() => {
     const pg = (window as any).__page;
     const chart = pg.stack.chartOf('price');
     const layout = chart.layout.yAxisLayout;
+    const plot = chart.layout.plot;
     const ticks = (layout.ticks || []).map(Number);
+    const domain = chart.getDomain('y').map(Number);
     let step = Infinity;
     for (let i = 1; i < ticks.length; i++) {
       const d = Math.abs(ticks[i] - ticks[i - 1]);
       if (d > 0 && d < step) step = d;
     }
+    const pixelSpan =
+      ticks.length > 1 && domain[1] > domain[0]
+        ? (plot.height * (ticks[ticks.length - 1] - ticks[0])) / (domain[1] - domain[0])
+        : 0;
     const plots = ['price', 'volume', 'indicator'].map((id) => pg.stack.chartOf(id).layout.plot);
     const aligned = plots.every(
-      (plot) => Math.abs(plot.x - plots[0].x) < 0.01 && Math.abs(plot.width - plots[0].width) < 0.01
+      (item) => Math.abs(item.x - plots[0].x) < 0.01 && Math.abs(item.width - plots[0].width) < 0.01
     );
-    return { step: isFinite(step) ? step : 0, labels: layout.labels || [], aligned };
+    return {
+      step: isFinite(step) ? step : 0,
+      count: ticks.length,
+      spacing: ticks.length > 1 ? pixelSpan / (ticks.length - 1) : 0,
+      labels: layout.labels || [],
+      aligned,
+    };
   });
 }
 
@@ -528,24 +545,44 @@ test.describe('K 线终端示例页', () => {
     expect(await cursor(), '绘图区悬停不给 ns-resize').toBe('');
   });
 
-  test('标尺拖到很细：刻度跟着变细，三块 pane 的绘图区仍然等宽对齐', async ({ page }) => {
+  test('刻度密度：价格轴一档落在 19~47px（默认 5 档那会儿是 57~71px），缩放后仍然稳', async ({ page }) => {
     await page.click('#btn-toggle');
     await page.waitForTimeout(200);
     const before = await tickState(page);
-    expect(before.aligned, '起手三块 pane 就是对齐的').toBe(true);
-    expect(before.step, '起手刻度是粗的').toBeGreaterThan(0);
+    expect(before.count, '默认就要给足档数（不是 5 档）').toBeGreaterThanOrEqual(8);
+    expect(before.spacing, '一档至少 19px').toBeGreaterThan(18);
+    expect(before.spacing, '一档最多 47px（1/2/5 梯子的粒度）').toBeLessThan(48);
+    expect(before.aligned).toBe(true);
 
+    // 缩放（标尺上按住往上拖）：窗口窄了，密度要跟着重算，而不是固定在某个档数上
     await dragRulerUp(page, 'price', 200);
-    const after = await tickState(page);
-    expect(after.step, '缩得越细，刻度步长越小（精度跟着走）').toBeLessThan(before.step);
-    expect(after.labels, '标签真的换了').not.toEqual(before.labels);
-    expect(after.aligned, '标签变长也没把三块图的绘图区挤歪').toBe(true);
+    const zoomed = await tickState(page);
+    expect(zoomed.count, '窄窗口也要有好几档').toBeGreaterThanOrEqual(4);
+    expect(zoomed.spacing, '缩到再细也不许挤成一团').toBeGreaterThan(18);
+    expect(zoomed.spacing, '缩到再细也不许稀下去').toBeLessThan(48);
+    expect(zoomed.step, '放大之后刻度只会更细，不会更粗').toBeLessThanOrEqual(before.step);
+    expect(zoomed.labels).not.toEqual(before.labels);
+    expect(zoomed.aligned, '标签变长也没把三块图的绘图区挤歪').toBe(true);
 
-    // 双击标尺回到自适应，刻度也跟着回到粗的那一档
+    // 双击标尺回到自适应：刻度与三条 pane 的对齐都回到原样
     await dblclickRuler(page, 'price');
     const home = await tickState(page);
     expect(home.step).toBeCloseTo(before.step, 6);
+    expect(home.spacing).toBeCloseTo(before.spacing, 0);
     expect(home.aligned).toBe(true);
+
+    // 三块 pane 的档数各自按自己的轴长算：价格轴最密，成交量 / 副图够用就好
+    const others = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      return ['volume', 'indicator'].map((id) => {
+        const layout = pg.stack.chartOf(id).layout.yAxisLayout;
+        return { id, count: (layout.ticks || []).length };
+      });
+    });
+    for (const pane of others) {
+      expect(pane.count, `${pane.id} 至少两档`).toBeGreaterThanOrEqual(2);
+      expect(pane.count, `${pane.id} 不该挤成一团`).toBeLessThanOrEqual(10);
+    }
   });
 
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {

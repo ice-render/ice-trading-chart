@@ -198,6 +198,7 @@ book.setPalette({ upColor, downColor });                              // 换配�
 | `formatPrice` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化 |
 | `CandlestickSeries` / `resolveCandleStyle` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与配色 |
 | `createPaneStack(container, specs, options)` | 真副图：多实例 + 联动 + 横向对齐 |
+| `axisTickCount(min, max, length, { spacing?, nice? })` | 按「轴长 ÷ 一档的最小像素」反推数值轴给几档刻度（pane 栈自动注入 `tickCount`，默认 5 档会明显偏稀） |
 | `createOverlaySeries` / `createMacdPaneOption` / `createRsiPaneOption` | 指标 option 构造 |
 | `sma` / `ema` / `stdev` / `bollinger` / `macd` / `rsi` / `macdRange` | 指标纯函数 |
 | `createDrawingLayer(chart, options)` | 画线图层（SVG 覆盖层，数据坐标持久化） |
@@ -239,6 +240,7 @@ npm run build && npx http-server . -p 8102 -c-1
 | 图表外壳的两条边界 | 最新价被推出视野时：虚线不画、价签钉在价格轴的上/下沿（不会压到下面的副图上）；指针停在标尺上时不出准星横线（横线的读数只属于绘图区） |
 | 图表顶部工具条 | 常显的收藏周期（一键切换）+ 四组下拉：**周期**（分组列表 / 星标收藏 / 自定义周期）、**指标**（主图叠加多选 + 副图单选）、**画线**、**显示**（涨跌配色 / 阳线空心） |
 | 图表右侧盘口 | `createOrderBook` 组件（每侧 10 档、深度条、点价填单） |
+| 数值轴刻度密度 | 价格轴默认就有 8~13 档（一档 19~47px），不再是引擎默认的 5 档 / 57~71px；密度按「轴长 ÷ 一档的最小像素」反推，缩放 / 平移 / 手动量程都会跟着重算，三块 pane 各自按自己的轴长给档数 |
 | 右上工具栏 | 暂停 / 继续（停行情推流）、重置（重新采样） |
 | 右侧下单面板 | 限价 / 市价、全仓 / 逐仓、杠杆滑块、止盈止损、只减仓 |
 | 底部三块 | 持仓表（未实现盈亏 / 保证金 / 强平价随现价动）、委托表（可撤单）、画线记录（数据坐标 JSON） |

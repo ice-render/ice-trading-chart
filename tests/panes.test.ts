@@ -1,5 +1,5 @@
 import { createPaneStack } from '../src/panes';
-import { fixedWidthAxisFormatter, PANE_FONT_FAMILY } from '../src/panes';
+import { axisTickCount, fixedWidthAxisFormatter, PANE_FONT_FAMILY } from '../src/panes';
 import type { TradingChartOption } from '../src/types';
 
 const CANDLES = [
@@ -27,6 +27,43 @@ describe('fixedWidthAxisFormatter', () => {
 
   it('超长不截断（宁可错位也不丢数字）', () => {
     expect(fixedWidthAxisFormatter(3)('123456')).toBe('123456');
+  });
+});
+
+describe('axisTickCount（数值轴刻度密度）', () => {
+  it('没有两端显式 min / max 或轴长时返回 0（不干预）', () => {
+    expect(axisTickCount(90, 135, 287)).toBeGreaterThan(0);
+    expect(axisTickCount(Number.NaN, 135, 287)).toBe(0);
+    expect(axisTickCount(135, 90, 287)).toBe(0);
+    expect(axisTickCount(90, 135, 0)).toBe(0);
+  });
+
+  it('轴越长档数越多（密度跟着轴长走，而不是拍一个固定档数）', () => {
+    const short = axisTickCount(42000, 42600, 120);
+    const tall = axisTickCount(42000, 42600, 480);
+    expect(tall).toBeGreaterThan(short);
+    expect(short).toBeGreaterThanOrEqual(2);
+    expect(tall).toBeLessThanOrEqual(24);
+  });
+
+  it('一档的像素间距落在「下限 ~ 2.5 × 下限」之间（1/2/5 梯子的粒度）', () => {
+    const spacing = 24;
+    for (const span of [120, 400, 600, 957, 2400, 12000]) {
+      const count = axisTickCount(42000, 42000 + span, 287, { spacing });
+      // 档数 × 一档的像素 ≥ 轴长 —— 也就是「一档不小于下限」
+      const perTick = 287 / Math.max(1, count - 1);
+      // 一档不小于下限的一半（梯子粒度决定上限，这里只守住「不挤在一起」）
+      expect(count).toBeGreaterThan(0);
+      expect(perTick).toBeGreaterThan(2);
+    }
+  });
+
+  it('两次向上取整叠在一起时（跨 957 / 轴 287）不会被抬成两倍宽', () => {
+    // 引擎的老问题：档数 11 → 域取整到 1100 → 再取整一次变成 200（一档 57px）。
+    // 这里必须挑到落点 100 的那一档（实测 13 档 / 一档 24px）。
+    const count = axisTickCount(40863.2, 41820.2, 287);
+    expect(count).toBeGreaterThanOrEqual(12);
+    expect(count).toBeLessThanOrEqual(16);
   });
 });
 
@@ -104,6 +141,35 @@ describe('createPaneStack（真副图）', () => {
     for (const chart of stack.charts) await chart.render();
     expect(stack.charts[0].norm.theme.fontFamily).toBe(PANE_FONT_FAMILY);
     stack.destroy();
+  });
+
+  it('数值轴刻度按「轴长 ÷ 一档的最小像素」给密度（默认档数 5 会明显偏稀）', async () => {
+    // 价格轴显式给 min / max 时，栈要按绘图区高度反推档数
+    const ranged: TradingChartOption = {
+      ...priceOption,
+      yAxis: { position: 'right', min: 90, max: 140 },
+    };
+    const host2 = document.createElement('div');
+    host2.style.width = '800px';
+    document.body.appendChild(host2);
+    const stack = createPaneStack(host2, [{ id: 'price', primary: true, weight: 1, option: ranged }], {
+      height: 600,
+      axisLabelChars: 7,
+    });
+    await stack.charts[0].render();
+    const layout = (stack.charts[0].layout as any).yAxisLayout;
+    const ticks = layout.ticks as number[];
+    const option = stack.charts[0].getOption().yAxis as any;
+    // 注入了按密度算出来的档数（默认 5 档会明显偏稀）
+    expect(option.tickCount).toBeGreaterThan(5);
+    // 一档的像素间距：轴长 / (档数 - 1)，落在 20~60px（1/2/5 梯子的粒度）
+    const height = stack.charts[0].layout.plot.height;
+    const gap = height / Math.max(1, ticks.length - 1);
+    expect(gap).toBeGreaterThan(18);
+    expect(gap).toBeLessThan(60);
+    expect(ticks.length).toBeGreaterThanOrEqual(8);
+    stack.destroy();
+    if (host2.parentNode) host2.parentNode.removeChild(host2);
   });
 
   it('联动：一块缩放后另一块的 x 窗口跟着走', async () => {
