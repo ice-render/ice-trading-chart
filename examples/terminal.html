@@ -63,8 +63,16 @@
       .symbol-id .mark span { font-size: 12px; }
       .stats { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
       .stat { display: flex; flex-direction: column; gap: 1px; }
-      .stat span { color: var(--muted); font-size: 11px; }
-      .stat b { font-size: 12px; }
+      .stat span { color: var(--muted); font-size: 11px; white-space: nowrap; }
+      /*
+        ⚠️ 数值的**宽度必须稳定**：24h 成交额 29.17B → 9.87B 这种位数变化会让这一条重新换行，
+        顶部一变高，图表区（flex 项）就跟着变 —— 「同一段视窗，量两次几何竟然不一样」，
+        像素类用例当场飘（实测踩到）。等宽数字 + 固定最小宽度把这一条钉死。
+      */
+      .stat b {
+        font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums;
+        min-width: 92px; text-align: right;
+      }
       .symbol-bar .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
       /* ---------------- 通用面板 / 按钮 ---------------- */
@@ -161,13 +169,19 @@
       .draw-tool.on { background: rgba(240, 185, 11, 0.16); color: var(--accent); }
       .draw-tool svg { width: 16px; height: 16px; }
       .chart-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-      #panes { flex: 1 1 auto; min-height: 360px; }
+      #panes { flex: 1 1 auto; min-height: 360px; overflow: hidden; }
+      /*
+        ⚠️ 脚注**固定高度**：提示文案长短会换行（默认那句长、点完只剩「价格轴已自适应」），
+        高度一变图表区就跟着变 —— 「同一段视窗量两次几何不一样」，像素用例当场飘（实测踩到）。
+      */
       .chart-foot {
-        display: flex; gap: 16px; padding: 5px 10px; border-top: 1px solid var(--line-soft);
-        font: 11px/1.5 var(--mono); color: var(--muted); flex: 0 0 auto;
+        display: flex; align-items: center; gap: 16px; padding: 0 10px; height: 30px;
+        border-top: 1px solid var(--line-soft); font: 11px/1.5 var(--mono); color: var(--muted);
+        flex: 0 0 auto; overflow: hidden;
       }
+      .chart-foot > span { white-space: nowrap; }
       .chart-foot b { color: var(--dim); }
-      #s-hint { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #s-hint { color: var(--muted); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
       /* 图表外壳（HTML 覆盖层，几何由 syncChromeBox 对齐到主图画布） */
       .chrome { position: absolute; left: 0; top: 0; pointer-events: none; font-family: var(--mono); }
@@ -827,6 +841,8 @@
         paneValue = null;
         /** 会话分隔线的几何签名（视窗一变就重建那几条线）。 */
         sessionSig = '';
+        /** 容器尺寸观察者（图表区高度跟容器走）。 */
+        observer = null;
         /** 顶部跑马灯里的合成行情（演示数据，跟主图无关）。 */
         tickers = [
           { symbol: 'BTCUSDT', price: 82532.4, pct: 2.73, digits: 1 },
@@ -859,6 +875,16 @@
           this.syncChrome(true);
           this.timer = setInterval(() => this.step(), TerminalPage.TICK_MS);
           this.fpsAt = performance.now();
+          // 首帧之后再排一次：pane 栈的高度读的是容器 clientHeight，而建栈那一刻
+          // flex 布局还没定稿（字体、换行会再改一次），量到的可能是临时值 ——
+          // 量大了画布就比容器高，最下面的时间轴被脚注压住（实测）。
+          requestAnimationFrame(() => this.resize());
+          // 之后交给 ResizeObserver：顶部那几条一旦因为换行/字体变高，图表区就得跟着重排 ——
+          // 光监听 window.resize 是不够的（窗口没动、容器自己变了，实测漏过一次）。
+          if (typeof ResizeObserver === 'function') {
+            this.observer = new ResizeObserver(() => this.resize());
+            this.observer.observe(document.getElementById('panes'));
+          }
         }
 
         /** 阳线空心 = 图表类型选了「空心蜡烛」。 */
