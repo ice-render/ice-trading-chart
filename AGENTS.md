@@ -382,6 +382,22 @@ pane 栈在 `alignAxes` 里给**没写 `tickCount`** 的 y 轴补上。四条坑
 `e2e/terminal-pan.spec.ts` 的「刻度密度」那条（默认档数 ≥ 8、一档 19~47px、
 缩放后仍然稳、三块 pane 等宽）。
 
+## 背景是「方格」：竖线靠 x 轴抽稀表对齐
+
+示例页三块 pane 都开 `grid: { x: true }`（引擎默认只有横向平行线），竖线的位置由引擎给：
+**跟 x 轴标签抽稀同一批**（`labels[i] === ''` 的那几颗不画）。所以：
+
+- 竖线数量 = 时间标签数量，位置与标签严格一致 —— 这就是「方格」；
+- 三块 pane 的 x 窗口相同、绘图区等宽、formatter 也相同 → 抽稀结果相同 → 竖线贯穿整摞 pane。
+- 上面两块 pane 的 `xAxis.show: false`（省纵向空间），但**抽稀表照出**（只是不占排版空间、
+  Axis 也不画）—— 没有这张表，网格只能退回 `scale.ticks()`，而类目轴的 `ticks()` 会返回
+  整个 domain：视窗里 120 根就是 120 条竖线，一片栅栏（实测）。
+
+⚠️ 这条依赖上游（`ice-chart`）的两个能力：① 抽稀对隐藏的 x 轴也做；② `GridLines` 用布局表的
+抽稀结果而不是 `scale.ticks(5)`。上游的坑与回归网记在 `ice-chart/AGENTS.md` 的「x 轴标签抽稀
+只有一处」那一节（`tests/chart/grid-x.test.ts`）。本仓的 e2e「背景是方格」在**未来空位**里扫
+像素数竖线：数量 = 真画出来的标签数，且三块 pane 的竖线 x 一致（±1.5px）。
+
 ## 报价精度（小数位）与补位预算
 
 `TradingChartExtras.pricePrecision` 给价格轴装一个**固定小数位**的 formatter

@@ -393,6 +393,14 @@
          */
         static CROSSHAIR = { show: false };
         /**
+         * 网格：横向 + **纵向**都要。
+         *
+         * 引擎默认 `grid.x: false`（只有横向平行线），打开之后是「方格」—— 主流看盘软件的样子。
+         * 竖线的位置由引擎给（跟 x 轴标签抽稀同一批，见 ice-chart 的 `grid-x.test.ts`），
+         * 所以三块 pane 因为绘图区等宽 + 同一个 x 窗口，竖线天然对齐成方格。
+         */
+        static GRID = { x: true };
+        /**
          * 三块 pane 共用的交互配置：**关掉悬停标记**（`hover.mark: false`）。
          *
          * 引擎默认会**给整列每个系列各画一个标记**（折线是半透明白填充的圆环、
@@ -638,6 +646,7 @@
             tooltip: { show: false },
             interaction: TerminalPage.INTERACTION,
             crosshair: { ...TerminalPage.CROSSHAIR, lineColor: TerminalPage.RULER_COLOR },
+            grid: TerminalPage.GRID,
             // x 轴标签只在最下面那块副图上显示：上面两块藏掉，省纵向空间也更干净
             xAxis: { type: 'category', show: false, formatter: (value) => this.displayLabel(value) },
             // 三块 pane 的左右 margin 必须一致，绘图区才能严格对齐；
@@ -671,6 +680,7 @@
             tooltip: { show: false },
             interaction: TerminalPage.INTERACTION,
             crosshair: { ...TerminalPage.CROSSHAIR, lineColor: TerminalPage.RULER_COLOR },
+            grid: TerminalPage.GRID,
             xAxis: { type: 'category', show: false, formatter: (value) => this.displayLabel(value) },
             margin: { top: 2, right: 16, bottom: 0, left: 12 },
             // 成交量轴**贴着数据**：nice 取整会把上界抬高（实测 3188 → 4200），
@@ -695,6 +705,7 @@
               tooltip: { show: false },
               interaction: TerminalPage.INTERACTION,
               crosshair: { ...TerminalPage.CROSSHAIR, lineColor: TerminalPage.RULER_COLOR },
+              grid: TerminalPage.GRID,
               xAxis: { type: 'category', formatter: (value) => this.displayLabel(value) },
               margin: { top: 2, right: 16, bottom: 0, left: 12 },
               yAxis: { position: 'right', nice: false, min: 0, max: 100 },
@@ -714,6 +725,7 @@
             tooltip: { show: false },
             interaction: TerminalPage.INTERACTION,
             crosshair: { ...TerminalPage.CROSSHAIR, lineColor: TerminalPage.RULER_COLOR },
+            grid: TerminalPage.GRID,
             xAxis: { type: 'category', formatter: (value) => this.displayLabel(value) },
             margin: { top: 2, right: 16, bottom: 0, left: 12 },
             yAxis: {

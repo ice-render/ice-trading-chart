@@ -171,6 +171,65 @@ async function dragRulerUp(page: Page, id: string, pixels: number, steps = 16) {
 }
 
 /**
+ * 某一格绘图区里**垂直网格线**的中心 x（画布 CSS px）。
+ *
+ * 做法：在绘图区里挑一条扫描线，把这一行按「出现最多的颜色 = 背景色」分出来，
+ * 连续的非背景像素算一条线；挑线时跳过「正好压在横线上的行」（那一行整行都不是背景色）。
+ * 用之前先把视窗拖进未来空位 —— 那一带只有网格，没有 K 线 / 量柱 / 指标，扫描线不会被数据污染。
+ */
+async function gridColumns(page: Page, id: string) {
+  return page.evaluate((paneId) => {
+    const pg = (window as any).__page;
+    const chart = pg.stack.chartOf(paneId);
+    const plot = chart.layout.plot;
+    const dpr = pg.dpr || 1;
+    const ctx = chart.ice.canvasEl.getContext('2d');
+    const x0 = Math.round(plot.x * dpr);
+    const w = Math.max(1, Math.round(plot.width * dpr));
+    for (const ratio of [0.12, 0.2, 0.3, 0.42, 0.55, 0.68, 0.8]) {
+      const y = Math.round((plot.y + plot.height * ratio) * dpr);
+      const row = ctx.getImageData(x0, y, w, 1).data;
+      const counts = new Map<string, number>();
+      for (let i = 0; i < w; i++) {
+        const key = `${row[i * 4]},${row[i * 4 + 1]},${row[i * 4 + 2]}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      let bgKey = '';
+      let bgCount = 0;
+      counts.forEach((count, key) => {
+        if (count > bgCount) {
+          bgCount = count;
+          bgKey = key;
+        }
+      });
+      // 这一行大半不是背景色 → 多半正好压在一条横线上，换一条
+      if (bgCount < w * 0.6) continue;
+      const bg = bgKey.split(',').map(Number);
+      const isInk = (index: number): boolean => {
+        const diff =
+          Math.abs(row[index * 4] - bg[0]) +
+          Math.abs(row[index * 4 + 1] - bg[1]) +
+          Math.abs(row[index * 4 + 2] - bg[2]);
+        return diff > 10;
+      };
+      const lines: number[] = [];
+      let run: number[] = [];
+      for (let i = 0; i < w; i++) {
+        if (isInk(i)) {
+          run.push(i);
+        } else {
+          if (run.length) lines.push((run[0] + run[run.length - 1]) / 2 / dpr);
+          run = [];
+        }
+      }
+      if (run.length) lines.push((run[0] + run[run.length - 1]) / 2 / dpr);
+      return { lines, y: y / dpr };
+    }
+    return { lines: [] as number[], y: -1 };
+  }, id);
+}
+
+/**
  * 数值轴的刻度：步长（数据单位）、**一档占多少像素**、档数、标签、以及三块 pane 的绘图区是否等宽对齐。
  *
  * 像素间距按「首尾两个刻度之间的实际像素 ÷ 间隔数」算 —— 刻度不一定铺满整个数据域
@@ -613,6 +672,39 @@ test.describe('K 线终端示例页', () => {
     await page.waitForTimeout(200);
     expect(await page.evaluate(() => document.querySelector('.tag.price')!.textContent)).toMatch(/^\d+\.\d{2}$/);
     expect(await page.evaluate(() => document.querySelector('.ohlc [data-k="close"]')!.textContent)).toMatch(/^\d+\.\d{2}$/);
+  });
+
+  test('背景是方格：垂直网格线跟时间标签同一批位置，三块 pane 对齐', async ({ page }) => {
+    await page.click('#btn-toggle');
+    await page.waitForTimeout(200);
+    // 拖进未来空位：那一片只有网格，扫描线不会被 K 线 / 量柱 / 指标污染
+    await dragLeft(page, 380);
+    await dragLeft(page, 380);
+    await dragLeft(page, 380);
+    const deep = await snapshot(page);
+    expect(deep.visibleReal).toBe(0);
+
+    const price = await gridColumns(page, 'price');
+    const volume = await gridColumns(page, 'volume');
+    const indicator = await gridColumns(page, 'indicator');
+    expect(price.y, '找到了一条干净的扫描线').toBeGreaterThan(0);
+    expect(price.lines.length, '竖线要成网格，不是一片栅栏也不是没有').toBeGreaterThanOrEqual(3);
+
+    // 跟时间标签同一批位置：竖线数量 = 底图上真画出来的标签数
+    const drawnLabels = await page.evaluate(() => {
+      const pg = (window as any).__page;
+      const layout = pg.stack.chartOf('indicator').layout.xAxisLayout;
+      return (layout.labels || []).filter((text: string) => text !== '').length;
+    });
+    expect(price.lines.length).toBe(drawnLabels);
+
+    // 三块 pane 的竖线落在同一批 x 上（方格要能贯穿整摞 pane）
+    for (const other of [volume, indicator]) {
+      expect(other.lines.length).toBe(price.lines.length);
+      for (let i = 0; i < price.lines.length; i++) {
+        expect(Math.abs(other.lines[i] - price.lines[i])).toBeLessThanOrEqual(1.5);
+      }
+    }
   });
 
   test('只动数值轴不算「动过视窗」：纵向拖之后仍然跟盘', async ({ page }) => {
