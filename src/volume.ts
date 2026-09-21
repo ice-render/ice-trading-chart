@@ -92,14 +92,21 @@ export function buildVolumeSeries(
   for (const raw of source.data) {
     const volume = readVolume(raw, option);
     const ohlc = readOhlc(raw, source);
+    const x = readX(raw, source);
     if (volume === null) {
-      data.push({ value: null });
+      // **读不出量的那一根也要带上 x**：类目轴是按「这格系列里出现过的 x」建域的，
+      // 少了 x 就少一个类目 —— 中间空一根会让后面所有量柱整体错位一格；
+      // 尾巴上空一大片（比如视窗停在最新数据右边）时更糟：这份系列的类目域会
+      // 比 K 线短一截，联动过来的窗口在这个 pane 里找不到右端 key，
+      // 引擎的 clamp 只好退回「整段数据」，量图当场被拉成整幅（实测踩到）。
+      const item: Record<string, unknown> = { value: null };
+      if (x !== undefined) item.x = x;
+      data.push(item);
       continue;
     }
     readable += 1;
     const rising = ohlc ? ohlc[1] >= ohlc[0] : true;
     const item: Record<string, unknown> = { value: volume, color: rising ? upColor : downColor };
-    const x = readX(raw, source);
     if (x !== undefined) item.x = x;
     data.push(item);
   }

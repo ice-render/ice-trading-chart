@@ -85,6 +85,25 @@ describe('buildVolumeSeries', () => {
     expect(data.map((d: any) => d.x)).toEqual(['D1', 'D2', 'D3']);
   });
 
+  it('读不出量的那一根**也要带 x**（少一个类目会让后面的量柱整体错位）', () => {
+    // 回归：空档那一根以前推的是 `{ value: null }`，没有 x。类目轴是按「这份系列里
+    // 出现过的 x」建域的 —— 少了 x 就少一格，中间空一根则后面所有量柱左移一格，
+    // 尾巴空一片则整条尾巴的类目都没了（联动窗口在那个 pane 里找不到右端 key，
+    // 引擎的 clamp 只好退回整段数据，量图当场被拉成整幅）。
+    const source: TradingSeriesOption = {
+      ...CANDLES,
+      data: [
+        { x: 'D1', o: 100, c: 110, l: 95, h: 115, v: 1200 },
+        { x: 'D2', o: 110, c: 105, l: 100, h: 118 },
+        { x: 'D3', o: 105, c: 120, l: 102, h: 125, v: 3000 },
+      ],
+    };
+    const data = (buildVolumeSeries(source) as any).data;
+    expect(data.map((d: any) => d.x)).toEqual(['D1', 'D2', 'D3']);
+    expect(data[1].x).toBe('D2');
+    expect(data[1].value).toBeNull();
+  });
+
   it('读不出量时返回 null，不出空系列', () => {
     expect(buildVolumeSeries({ ...CANDLES, data: [{ x: 'D1', o: 1, c: 2, l: 0, h: 3 }] })).toBeNull();
     expect(buildVolumeSeries(undefined)).toBeNull();
