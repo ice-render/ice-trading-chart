@@ -93,6 +93,39 @@
       .btn:hover { color: var(--text); border-color: var(--accent); }
       .btn.on { color: #fff; background: rgba(59, 130, 246, 0.22); border-color: var(--accent); }
 
+      /* 图表顶部工具条：内联的收藏项 + 下拉菜单 */
+      .tb-menu { position: relative; }
+      .tb-trigger i { font-style: normal; opacity: 0.55; margin-left: 3px; }
+      .tb-menu.open .tb-trigger { color: #fff; border-color: var(--accent); background: rgba(59, 130, 246, 0.16); }
+      .tb-panel {
+        position: absolute; top: calc(100% + 5px); left: 0; z-index: 40; display: none;
+        min-width: 196px; max-height: 340px; overflow: auto;
+        background: #131b26; border: 1px solid #2a3646; border-radius: 5px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); padding: 5px;
+      }
+      .tb-menu.open .tb-panel { display: block; }
+      .tb-title { padding: 3px 7px; color: var(--muted); font-size: 10px; }
+      .tb-item {
+        display: flex; align-items: center; gap: 7px; padding: 4px 7px;
+        border-radius: 3px; cursor: pointer; font-size: 11px; color: #a8b4c2; white-space: nowrap;
+      }
+      .tb-item:hover { background: rgba(255, 255, 255, 0.05); color: var(--text); }
+      .tb-item.active { color: #fff; background: rgba(59, 130, 246, 0.18); }
+      .tb-item .tb-mark { width: 12px; text-align: center; color: var(--accent); }
+      .tb-item .tb-star { margin-left: auto; opacity: 0.35; }
+      .tb-item .tb-star.on { opacity: 1; }
+      .tb-detail { padding: 3px 7px; color: var(--muted); font-size: 10px; }
+      .tb-form { display: grid; grid-template-columns: 1fr 62px auto; gap: 5px; padding: 4px 6px 6px; }
+      .tb-form select, .tb-form input {
+        background: #0b1119; border: 1px solid var(--line); border-radius: 3px;
+        color: var(--text); padding: 3px 5px; font: 11px/1.4 var(--mono);
+      }
+      .tb-form button {
+        background: #161d28; border: 1px solid #2a3646; border-radius: 3px;
+        color: #a8b4c2; padding: 3px 7px; font-size: 11px; cursor: pointer;
+      }
+      .tb-form button:hover { color: var(--text); border-color: var(--accent); }
+
       #panes { padding: 4px 6px 0; }
 
       /* 图表外壳：HTML 覆盖层，挂在主图那块画布上 */
@@ -144,15 +177,6 @@
       <div class="stat"><span>24h 量</span><b id="t-vol">-</b></div>
       <div class="stat"><span>资金费率 / 结算</span><b id="t-funding">-</b></div>
       <div class="tools">
-        <div class="tabs" id="seg-interval" style="border:0;padding:0">
-          <button type="button" data-interval="1m">1m</button>
-          <button type="button" data-interval="5m" class="on">5m</button>
-          <button type="button" data-interval="15m">15m</button>
-          <button type="button" data-interval="1H">1H</button>
-          <button type="button" data-interval="4H">4H</button>
-          <button type="button" data-interval="1D">1D</button>
-        </div>
-        <button class="btn" id="btn-scheme">涨色：红</button>
         <button class="btn" id="btn-toggle">暂停</button>
         <button class="btn" id="btn-reset">重置</button>
       </div>
@@ -160,19 +184,27 @@
 
     <div class="terminal">
       <div class="col chart-col">
-        <div class="chart-bar">
-          <button class="btn on" id="btn-ma">MA</button>
-          <button class="btn" id="btn-boll">BOLL</button>
-          <button class="btn" id="btn-hollow">阳线空心</button>
+        <!-- 图表顶部工具条：常显的收藏周期 + 分组下拉（周期 / 指标 / 画线 / 显示） -->
+        <div class="chart-bar" id="chart-bar">
+          <div class="tabs" id="tb-intervals" style="border:0;padding:0"></div>
+          <div class="tb-menu" data-menu="intervals">
+            <button class="btn tb-trigger" type="button">周期 <i>▾</i></button>
+            <div class="tb-panel" id="panel-intervals"></div>
+          </div>
           <span class="sep"></span>
-          <button class="btn on" data-pane="macd">MACD</button>
-          <button class="btn" data-pane="rsi">RSI</button>
-          <span class="sep"></span>
-          <button class="btn" data-tool="hline">水平线</button>
-          <button class="btn" data-tool="vline">垂直线</button>
-          <button class="btn" data-tool="trend">趋势线</button>
-          <button class="btn" data-tool="rect">区间</button>
-          <button class="btn" id="btn-del-drawing">删除选中</button>
+          <div class="tb-menu" data-menu="indicators">
+            <button class="btn tb-trigger" type="button">指标 <i>▾</i></button>
+            <div class="tb-panel" id="panel-indicators"></div>
+          </div>
+          <div class="tb-menu" data-menu="drawings">
+            <button class="btn tb-trigger" type="button">画线 <i>▾</i></button>
+            <div class="tb-panel" id="panel-drawings"></div>
+          </div>
+          <div class="tb-menu" data-menu="display">
+            <button class="btn tb-trigger" type="button">显示 <i>▾</i></button>
+            <div class="tb-panel" id="panel-display"></div>
+          </div>
+          <span class="readout" id="readout">-</span>
         </div>
         <div id="panes"></div>
         <div class="chart-foot">
@@ -264,17 +296,36 @@
     <script>
       class TerminalPage {
         /**
-         * 各周期。采样条数的取法要保证**类目标签逐根唯一** —— 类目轴按字符串去重，
+         * 各周期，按「分组 + 别名」组织，供顶部工具条的周期下拉使用。
+         *
+         * 采样条数的取法要保证**类目标签逐根唯一** —— 类目轴按字符串去重，
          * 标签重复会让两根 K 线塌缩到同一个类目上（命中与抬头全乱）。
          */
         static INTERVALS = {
-          '1m': { ms: 60e3, count: 120 },
-          '5m': { ms: 5 * 60e3, count: 120 },
-          '15m': { ms: 15 * 60e3, count: 95 },
-          '1H': { ms: 3600e3, count: 120 },
-          '4H': { ms: 4 * 3600e3, count: 90 },
-          '1D': { ms: 86400e3, count: 90 },
+          '1m': { ms: 60e3, count: 120, group: '分钟', label: '1 分钟' },
+          '3m': { ms: 3 * 60e3, count: 120, group: '分钟', label: '3 分钟' },
+          '5m': { ms: 5 * 60e3, count: 120, group: '分钟', label: '5 分钟' },
+          '15m': { ms: 15 * 60e3, count: 95, group: '分钟', label: '15 分钟' },
+          '30m': { ms: 30 * 60e3, count: 96, group: '分钟', label: '30 分钟' },
+          '1H': { ms: 3600e3, count: 120, group: '小时', label: '1 小时' },
+          '2H': { ms: 2 * 3600e3, count: 90, group: '小时', label: '2 小时' },
+          '4H': { ms: 4 * 3600e3, count: 90, group: '小时', label: '4 小时' },
+          '1D': { ms: 86400e3, count: 90, group: '天', label: '1 天' },
+          '1W': { ms: 7 * 86400e3, count: 78, group: '周', label: '1 周' },
+          '1M': { ms: 30 * 86400e3, count: 60, group: '月', label: '1 月' },
         };
+        /** 周期下拉里的分组顺序（自定义周期排最后）。 */
+        static INTERVAL_GROUPS = ['分钟', '小时', '天', '周', '月', '自定义'];
+        /**
+         * 指标预热期：多生成这么多根只用来喂指标，**不显示**。
+         *
+         * MACD(12,26,9) 要 33 根才有第一个柱值（慢线 26 + 信号线 9），不预热的话
+         * 副图左侧会空出一大块（真实终端是靠「多取一段历史」消掉这个观感的）。
+         */
+        static WARMUP = 40;
+        /** 默认收藏的周期（顶部工具条上常显的那一排）。 */
+        static DEFAULT_FAVORITES = ['1m', '5m', '15m', '1H', '4H', '1D'];
+        static PREFS_KEY = 'ice-trading-terminal-prefs';
         static TICK_MS = 600;
         static TICKS_PER_BAR = 3;
         static CHART_HEIGHT = 540;
@@ -323,8 +374,12 @@
         orderType = 'limit';
         marginMode = 'cross';
         scheme = 'redUp';
-        indicators = { ma: true, boll: false };
+        indicators = { ma: true, ema: false, boll: false };
         hollow = false;
+        favorites = TerminalPage.DEFAULT_FAVORITES.slice();
+        customIntervals = {};
+        customFormOpen = false;
+        openMenu = null;
         paneKind = 'macd';
         position = null;
         orders = [];
@@ -354,8 +409,9 @@
           return this.scheme === 'redUp' ? '#12b76a' : '#f04438';
         }
 
+        /** 当前周期（内置 + 自定义都要能取到，自定义周期走 allIntervals）。 */
         get interval() {
-          return TerminalPage.INTERVALS[this.intervalKey];
+          return this.allIntervals()[this.intervalKey] || TerminalPage.INTERVALS['5m'];
         }
 
         get candleSeries() {
@@ -363,7 +419,8 @@
             id: 'k',
             type: 'candlestick',
             name: '价格',
-            data: this.candles,
+            // 只画可见段：`this.candles` 前面还挂着 WARMUP 根，那是喂指标的
+            data: this.seriesCandles,
             // barWidth 不写就是默认（铺满类目带宽，只留 20% 间隙）
             candle: {
               upColor: this.upColor,
@@ -375,10 +432,16 @@
           };
         }
 
-        get priceOption() {
+        /** 主图叠加（在全量数据上算，尾部裁到可见段）。 */
+        get overlaySeries() {
           const spec = {};
           if (this.indicators.ma) spec.ma = [7, 25];
+          if (this.indicators.ema) spec.emaPeriods = [12, 26];
           if (this.indicators.boll) spec.boll = { period: 20, multiplier: 2 };
+          return this.tail(ICETradingChart.createOverlaySeries(this.warmupSeries, spec));
+        }
+
+        get priceOption() {
           return {
             legend: { show: false },
             animation: { enabled: false },
@@ -392,14 +455,14 @@
             margin: { top: 10, right: 16, bottom: 2, left: 12 },
             yAxis: { position: 'right' },
             volume: false,
-            series: [this.candleSeries].concat(ICETradingChart.createOverlaySeries(this.candleSeries, spec)),
+            series: [this.candleSeries].concat(this.overlaySeries),
           };
         }
 
         /** 成交量轴的上下界：贴住数据 + 4% 余量（不用 nice，避免上界被抬高一截）。 */
         get volumeAxisMax() {
           let max = 0;
-          for (const row of this.candles) if (row.v > max) max = row.v;
+          for (const row of this.seriesCandles) if (row.v > max) max = row.v;
           return max > 0 ? max * 1.04 : undefined;
         }
 
@@ -432,7 +495,8 @@
 
         get indicatorPaneOption() {
           if (this.paneKind === 'rsi') {
-            const built = ICETradingChart.createRsiPaneOption(this.candleSeries, { period: 14 });
+            const built = ICETradingChart.createRsiPaneOption(this.warmupSeries, { period: 14 });
+            built.series = this.tail(built.series);
             return {
               legend: { show: false },
               animation: { enabled: false },
@@ -444,10 +508,12 @@
               annotation: built.annotation,
             };
           }
-          const built = ICETradingChart.createMacdPaneOption(this.candleSeries, {
+          const built = ICETradingChart.createMacdPaneOption(this.warmupSeries, {
             upColor: this.upColor,
             downColor: this.downColor,
           });
+          built.series = this.tail(built.series);
+          // 量程按**可见段**算，副图才贴数据
           const range = ICETradingChart.macdRange(this.candleSeries, {});
           return {
             legend: { show: false },
@@ -466,13 +532,53 @@
           };
         }
 
+        /**
+         * 类目标签，**必须逐根唯一**（类目轴按字符串去重）。
+         * 跨度越长、粒度越粗，就要带上更多的时间信息：分钟级只给 `HH:MM`，
+         * 跨天的要给日期，跨年的要给年份，月线只给 `YY-MM`。
+         */
         labelOf(at) {
           const interval = this.interval;
           const date = new Date(at);
-          const day = `${TerminalPage.pad2(date.getMonth() + 1)}-${TerminalPage.pad2(date.getDate())}`;
-          if (interval.ms >= 86400e3) return day;
+          const span = interval.count * interval.ms;
+          const yy = String(date.getFullYear()).slice(2);
+          const md = `${TerminalPage.pad2(date.getMonth() + 1)}-${TerminalPage.pad2(date.getDate())}`;
           const clock = `${TerminalPage.pad2(date.getHours())}:${TerminalPage.pad2(date.getMinutes())}`;
-          return interval.count * interval.ms >= 86400e3 ? `${day} ${clock}` : clock;
+          if (interval.ms >= 30 * 86400e3) return `${yy}-${TerminalPage.pad2(date.getMonth() + 1)}`;
+          if (span >= 365 * 86400e3) return `${yy}-${md}`;
+          if (interval.ms >= 86400e3) return md;
+          return span >= 86400e3 ? `${md} ${clock}` : clock;
+        }
+
+        /** 指标的输入是**全量**（含预热），图上只画尾部那一段。 */
+        get seriesCandles() {
+          const n = this.interval.count;
+          return this.candles.length > n ? this.candles.slice(-n) : this.candles;
+        }
+
+        /** 把一串系列裁到可见区间（尾部 count 根）。 */
+        tail(series) {
+          const n = this.interval.count;
+          return series.map((item) => ({ ...item, data: Array.isArray(item.data) ? item.data.slice(-n) : item.data }));
+        }
+
+        /** 全量 K 线系列（喂指标用，不直接画）。 */
+        get warmupSeries() {
+          return { ...this.candleSeries, data: this.candles };
+        }
+
+        /** 所有可选周期（内置 + 自定义）。 */
+        allIntervals() {
+          return { ...TerminalPage.INTERVALS, ...this.customIntervals };
+        }
+
+        intervalOf(key) {
+          return this.allIntervals()[key] || null;
+        }
+
+        intervalLabel(key) {
+          const interval = this.intervalOf(key);
+          return interval && interval.label ? interval.label : key;
         }
 
         seed() {
@@ -488,8 +594,10 @@
           this.pushed = 0;
           this.position = null;
           this.orders = [];
-          for (let i = 0; i < interval.count; i++) {
-            this.candles.push(this.makeBar(now - (interval.count - 1 - i) * interval.ms));
+          // 多生成 WARMUP 根只喂指标，不显示（消掉 MACD 左侧的预热期空白）
+          const total = interval.count + TerminalPage.WARMUP;
+          for (let i = 0; i < total; i++) {
+            this.candles.push(this.makeBar(now - (interval.count - 1 - i + TerminalPage.WARMUP) * interval.ms));
           }
         }
 
@@ -587,63 +695,288 @@
             document.getElementById('btn-toggle').textContent = this.running ? '暂停' : '继续';
           });
           document.getElementById('btn-reset').addEventListener('click', () => this.rebuild('已重置'));
-          document.getElementById('btn-scheme').addEventListener('click', () => {
-            this.scheme = this.scheme === 'redUp' ? 'greenUp' : 'redUp';
-            document.getElementById('btn-scheme').textContent = this.scheme === 'redUp' ? '涨色：红' : '涨色：绿';
-            if (this.book) this.book.setPalette({ upColor: this.upColor, downColor: this.downColor });
-            this.invalidate();
-          });
-          document.getElementById('seg-interval').addEventListener('click', (event) => {
-            const key = event.target.getAttribute && event.target.getAttribute('data-interval');
-            if (!key || key === this.intervalKey) return;
-            this.intervalKey = key;
-            for (const button of document.querySelectorAll('#seg-interval button')) {
-              button.classList.toggle('on', button === event.target);
-            }
-            // 换了周期，类目标签整批换掉：旧的画线锚点没有对应类目了，视窗也要重置
-            this.drawing.clear();
-            this.seed();
-            this.invalidate(true);
-            this.setHint(`已切到 ${key}`);
-          });
-          document.getElementById('btn-ma').addEventListener('click', (event) => this.toggleIndicator('ma', event.target));
-          document.getElementById('btn-boll').addEventListener('click', (event) => this.toggleIndicator('boll', event.target));
-          document.getElementById('btn-hollow').addEventListener('click', (event) => {
-            this.hollow = !this.hollow;
-            event.target.classList.toggle('on', this.hollow);
-            this.invalidate();
-          });
-          for (const button of document.querySelectorAll('[data-pane]')) {
-            button.addEventListener('click', () => {
-              this.paneKind = button.getAttribute('data-pane');
-              for (const other of document.querySelectorAll('[data-pane]')) {
-                other.classList.toggle('on', other === button);
-              }
-              this.stack.refresh({ animate: false, preserveView: true });
-            });
-          }
-          this.bindDrawingTools();
+          this.bindToolbar();
           this.bindOrderForm();
           this.bindPointer();
         }
 
-        bindDrawingTools() {
-          const buttons = document.querySelectorAll('.chart-bar [data-tool]');
-          for (const button of buttons) {
-            button.addEventListener('click', () => {
-              const kind = button.getAttribute('data-tool');
-              const next = this.drawing.mode() === kind ? null : kind;
-              this.drawing.setMode(next);
-              for (const other of buttons) other.classList.toggle('on', other === button && !!next);
-              this.setHint(next ? '在图上点一下（趋势线 / 区间点两下）' : '已退出画线模式');
+        /**
+         * 图表顶部工具条：常显的收藏周期 + 四组下拉。
+         *
+         * 交互约定（对齐主流终端的做法）：
+         * - 同一时刻只开一个下拉；点空白处或按 Esc 收起；
+         * - 选周期 / 选画线工具 / 执行操作后自动收起；指标是**多选**，勾选时保持展开；
+         * - 面板内容是动态渲染的，所以事件一律**委托在容器上**，不逐个绑。
+         */
+        bindToolbar() {
+          for (const menu of document.querySelectorAll('.tb-menu')) {
+            const trigger = menu.querySelector('.tb-trigger');
+            trigger.addEventListener('click', (event) => {
+              event.stopPropagation();
+              this.toggleMenu(menu.getAttribute('data-menu'));
             });
           }
-          document.getElementById('btn-del-drawing').addEventListener('click', () => {
-            const selected = this.drawing.selected();
-            if (!selected) return this.setHint('先点一下某条线选中它');
-            this.drawing.remove(selected.id);
-            this.setHint(`已删除 ${selected.id}`);
+          document.getElementById('tb-intervals').addEventListener('click', (event) => {
+            const key = event.target.getAttribute && event.target.getAttribute('data-interval');
+            if (key) this.setIntervalKey(key);
           });
+          for (const name of ['intervals', 'indicators', 'drawings', 'display']) {
+            document.getElementById(`panel-${name}`).addEventListener('click', (event) => {
+              event.stopPropagation();
+              this.onPanelClick(name, event);
+            });
+          }
+          document.addEventListener('click', () => this.closeMenus());
+          document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') this.closeMenus();
+          });
+          this.loadPrefs();
+          this.renderToolbar();
+        }
+
+        toggleMenu(name) {
+          this.openMenu = this.openMenu === name ? null : name;
+          for (const menu of document.querySelectorAll('.tb-menu')) {
+            menu.classList.toggle('open', menu.getAttribute('data-menu') === this.openMenu);
+          }
+        }
+
+        closeMenus() {
+          if (!this.openMenu) return;
+          this.openMenu = null;
+          for (const menu of document.querySelectorAll('.tb-menu')) menu.classList.remove('open');
+        }
+
+        onPanelClick(name, event) {
+          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-custom]') : null;
+          if (!target) return;
+          const read = (key) => target.getAttribute(key);
+          const star = read('data-star');
+          if (star) return this.toggleFavorite(star);
+
+          const custom = read('data-custom');
+          if (custom === 'open') {
+            this.customFormOpen = !this.customFormOpen;
+            return this.renderIntervalPanel();
+          }
+          if (custom === 'add') return this.addCustomInterval();
+
+          const interval = read('data-interval');
+          if (interval) return this.setIntervalKey(interval);
+
+          const ind = read('data-ind');
+          if (ind) {
+            this.indicators[ind] = !this.indicators[ind];
+            this.renderIndicatorPanel();
+            this.invalidate();
+            return undefined;
+          }
+          const pane = read('data-pane');
+          if (pane) {
+            this.paneKind = pane;
+            this.renderIndicatorPanel();
+            this.stack.refresh({ animate: false, preserveView: true });
+            return undefined;
+          }
+          const tool = read('data-tool');
+          if (tool) {
+            const next = this.drawing.mode() === tool ? null : tool;
+            this.drawing.setMode(next);
+            this.renderDrawingPanel();
+            this.closeMenus();
+            return this.setHint(next ? '在图上点一下（趋势线 / 区间点两下）' : '已退出画线模式');
+          }
+          const action = read('data-action');
+          if (action) {
+            this.closeMenus();
+            if (action === 'delete') {
+              const selected = this.drawing.selected();
+              if (!selected) return this.setHint('先点一下某条线选中它');
+              this.drawing.remove(selected.id);
+              return this.setHint(`已删除 ${selected.id}`);
+            }
+            if (action === 'clear') {
+              this.drawing.clear();
+              return this.setHint('已清空画线');
+            }
+            return undefined;
+          }
+          const scheme = read('data-scheme');
+          if (scheme) {
+            this.scheme = scheme;
+            if (this.book) this.book.setPalette({ upColor: this.upColor, downColor: this.downColor });
+            this.renderDisplayPanel();
+            this.invalidate();
+            return undefined;
+          }
+          const display = read('data-display');
+          if (display === 'hollow') {
+            this.hollow = !this.hollow;
+            this.renderDisplayPanel();
+            this.invalidate();
+          }
+          return undefined;
+        }
+
+        setIntervalKey(key) {
+          if (!key || key === this.intervalKey || !this.intervalOf(key)) return;
+          this.intervalKey = key;
+          // 换了周期，类目标签整批换掉：旧的画线锚点没有对应类目了，视窗也要重置
+          this.drawing.clear();
+          this.seed();
+          this.closeMenus();
+          this.renderToolbar();
+          this.invalidate(true);
+          this.setHint(`已切到 ${key}`);
+        }
+
+        toggleFavorite(key) {
+          const index = this.favorites.indexOf(key);
+          if (index >= 0) this.favorites.splice(index, 1);
+          else this.favorites.push(key);
+          this.savePrefs();
+          this.renderToolbar();
+        }
+
+        /**
+         * 自定义周期：类型 × 数值 → `{ ms, count }`。
+         *
+         * 条数按「类目标签必须唯一」反推并夹到 20~120：盘中周期不超过一天、日线以上不超过一年。
+         */
+        addCustomInterval() {
+          const type = document.getElementById('tb-custom-type').value;
+          const value = Number(document.getElementById('tb-custom-value').value);
+          if (!isFinite(value) || value <= 0 || Math.floor(value) !== value) {
+            return this.setHint('自定义周期要填正整数');
+          }
+          const unit = { 分钟: 60e3, 小时: 3600e3, 天: 86400e3 }[type] || 60e3;
+          const suffix = { 分钟: 'm', 小时: 'H', 天: 'D' }[type] || 'm';
+          const ms = unit * value;
+          const limit = ms < 86400e3 ? 86400e3 : 365 * 86400e3;
+          const count = Math.max(20, Math.min(120, Math.floor(limit / ms)));
+          const key = `${value}${suffix}`;
+          this.customIntervals[key] = { ms, count, group: '自定义', label: `${value} ${type}` };
+          this.customFormOpen = false;
+          this.savePrefs();
+          this.setIntervalKey(key);
+        }
+
+        renderToolbar() {
+          this.renderIntervalBar();
+          this.renderIntervalPanel();
+          this.renderIndicatorPanel();
+          this.renderDrawingPanel();
+          this.renderDisplayPanel();
+        }
+
+        /** 顶部工具条上常显的那一排周期（就是收藏列表）。 */
+        renderIntervalBar() {
+          const bar = document.getElementById('tb-intervals');
+          bar.innerHTML = this.favorites
+            .filter((key) => this.intervalOf(key))
+            .map((key) => `<button type="button" data-interval="${key}" class="${key === this.intervalKey ? 'on' : ''}">${key}</button>`)
+            .join('');
+        }
+
+        renderIntervalPanel() {
+          const all = this.allIntervals();
+          const groups = {};
+          for (const key of Object.keys(all)) {
+            const group = all[key].group || '自定义';
+            if (!groups[group]) groups[group] = [];
+            groups[group].push(key);
+          }
+          const rows = ['<div class="tb-item" data-custom="open"><span class="tb-mark">＋</span>自定义周期</div>'];
+          if (this.customFormOpen) {
+            rows.push(
+              '<div class="tb-form">' +
+                '<select id="tb-custom-type"><option>分钟</option><option>小时</option><option>天</option></select>' +
+                '<input id="tb-custom-value" type="text" inputmode="numeric" value="7" />' +
+                '<button type="button" data-custom="add">添加</button>' +
+                '</div>'
+            );
+          }
+          for (const group of TerminalPage.INTERVAL_GROUPS) {
+            if (!groups[group] || !groups[group].length) continue;
+            rows.push(`<div class="tb-title">${group}</div>`);
+            for (const key of groups[group]) {
+              const active = key === this.intervalKey;
+              const starred = this.favorites.indexOf(key) >= 0;
+              rows.push(
+                `<div class="tb-item ${active ? 'active' : ''}" data-interval="${key}">` +
+                  `<span class="tb-mark">${active ? '✓' : ''}</span>${this.intervalLabel(key)}` +
+                  `<span class="tb-star ${starred ? 'on' : ''}" data-star="${key}" title="加入/移出收藏">★</span>` +
+                  '</div>'
+              );
+            }
+          }
+          document.getElementById('panel-intervals').innerHTML = rows.join('');
+        }
+
+        renderIndicatorPanel() {
+          const row = (id, label, checked) =>
+            `<div class="tb-item ${checked ? 'active' : ''}" data-ind="${id}"><span class="tb-mark">${checked ? '✓' : ''}</span>${label}</div>`;
+          const pane = (id, label, checked) =>
+            `<div class="tb-item ${checked ? 'active' : ''}" data-pane="${id}"><span class="tb-mark">${checked ? '●' : ''}</span>${label}</div>`;
+          document.getElementById('panel-indicators').innerHTML =
+            '<div class="tb-title">主图叠加</div>' +
+            row('ma', '均线 MA(7,25)', this.indicators.ma) +
+            row('ema', '均线 EMA(12,26)', this.indicators.ema) +
+            row('boll', '布林带 BOLL(20,2)', this.indicators.boll) +
+            '<div class="tb-title">副图</div>' +
+            pane('macd', 'MACD(12,26,9)', this.paneKind === 'macd') +
+            pane('rsi', 'RSI(14)', this.paneKind === 'rsi');
+        }
+
+        renderDrawingPanel() {
+          const mode = this.drawing ? this.drawing.mode() : null;
+          const tool = (id, label) =>
+            `<div class="tb-item ${mode === id ? 'active' : ''}" data-tool="${id}"><span class="tb-mark">${mode === id ? '✓' : ''}</span>${label}</div>`;
+          document.getElementById('panel-drawings').innerHTML =
+            '<div class="tb-title">画线工具（选一种再在图上点）</div>' +
+            tool('hline', '水平线') +
+            tool('vline', '垂直线') +
+            tool('trend', '趋势线') +
+            tool('rect', '区间矩形') +
+            '<div class="tb-title">操作</div>' +
+            '<div class="tb-item" data-action="delete"><span class="tb-mark"></span>删除选中</div>' +
+            '<div class="tb-item" data-action="clear"><span class="tb-mark"></span>清空全部</div>';
+        }
+
+        renderDisplayPanel() {
+          const scheme = (id, label) =>
+            `<div class="tb-item ${this.scheme === id ? 'active' : ''}" data-scheme="${id}"><span class="tb-mark">${this.scheme === id ? '●' : ''}</span>${label}</div>`;
+          document.getElementById('panel-display').innerHTML =
+            '<div class="tb-title">涨跌配色</div>' +
+            scheme('redUp', '红涨绿跌') +
+            scheme('greenUp', '绿涨红跌') +
+            '<div class="tb-title">蜡烛</div>' +
+            `<div class="tb-item ${this.hollow ? 'active' : ''}" data-display="hollow"><span class="tb-mark">${this.hollow ? '✓' : ''}</span>阳线空心</div>`;
+        }
+
+        /** 收藏的周期与自定义周期存本地，刷新后还在。 */
+        loadPrefs() {
+          try {
+            const raw = window.localStorage && window.localStorage.getItem(TerminalPage.PREFS_KEY);
+            if (!raw) return;
+            const prefs = JSON.parse(raw);
+            if (Array.isArray(prefs.favorites) && prefs.favorites.length) this.favorites = prefs.favorites;
+            if (prefs.custom && typeof prefs.custom === 'object') this.customIntervals = prefs.custom;
+          } catch (error) {
+            void error;
+          }
+        }
+
+        savePrefs() {
+          try {
+            if (!window.localStorage) return;
+            window.localStorage.setItem(
+              TerminalPage.PREFS_KEY,
+              JSON.stringify({ favorites: this.favorites, custom: this.customIntervals })
+            );
+          } catch (error) {
+            void error;
+          }
         }
 
         bindOrderForm() {
@@ -693,12 +1026,6 @@
             this.pointerY = null;
             this.syncChrome();
           });
-        }
-
-        toggleIndicator(key, button) {
-          this.indicators[key] = !this.indicators[key];
-          button.classList.toggle('on', this.indicators[key]);
-          this.invalidate();
         }
 
         setHint(text) {
@@ -752,7 +1079,7 @@
           if (this.ticksInBar >= TerminalPage.TICKS_PER_BAR) {
             this.ticksInBar = 0;
             this.candles.push(this.makeBar(last.at + interval.ms));
-            if (this.candles.length > interval.count) this.candles.shift();
+            if (this.candles.length > interval.count + TerminalPage.WARMUP) this.candles.shift();
           }
           this.matchOrders();
           this.stack.refresh({ animate: false, preserveView: true });
