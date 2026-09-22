@@ -85,11 +85,12 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
   `visibleRange(pad)` 公开给外壳与审计断言用。
 - **不要用 `seriesComponent.pixelAt()`** 做外壳定位（动画期间是补间位置）—— 这条没变，见下一节。
 
-**上游已知瓶颈（未修，需要先跟上游确认）**：`ice-chart` 的 `Axis.tickEntries()` 会为**每一个类目**
-调 `scale.map()` 与 `formatTick()`，而类目轴（`BandScale`）的 `map` 内部是线性查类目 ——
-10 万个类目时 `axisX` 每帧 **3.7s**（实测；K 线组件本身同期只要 15ms）。
-本包的 K 线数据只要类目数上万就会撞上它。修法是通用的（① 抽稀表里 `labels[i] === ''` 的直接跳过，
-② `BandScale` 给 `indexOf` 加一张 Map 缓存），但按本仓铁律 2 要先与用户确认再动上游。
+**上游瓶颈已修（ice-chart 0.29.1）**：`Axis.tickEntries()` 原来为**每一个类目**调
+`scale.map()` + `formatTick()`，而类目轴的 `map` 内部是线性查类目 —— 10 万个类目时 `axisX`
+一次渲染 **3716ms**（K 线组件同期只要 15ms，也就是说这 3.7s 全在上游的坐标轴上）。
+0.29.1 修了两处通用问题：抽稀掉的刻度（`labels[i] === ''`）不进表 + `BandScale` 的
+类目查表缓存 → `axisX` **3716ms → 0ms**、首帧 **3737ms → 17ms**（10 万根 K 线实测）。
+所以本仓的 peer 下限是 `^0.29.0`；**别把它退回 0.28**，那会把这条修复一起丢掉。
 
 ## 用浏览器验证前必须先 build
 
