@@ -50,7 +50,7 @@ describe('K 线（引擎集成）', () => {
 
   /** 某个下标在画布上的像素坐标：直接查比例尺，不依赖系列的像素缓存。 */
   function screenOf(c: ICEChart, index: number, price: number): [number, number] {
-    const x = c.norm.xAxis.scale!.map(c.norm.series[0].points[index].xValue);
+    const x = c.norm.xAxis.scale!.map(c.norm.series[0].xValueAt(index));
     const y = c.norm.yAxes[0].scale!.map(price);
     return [c.layout.plot.x + x, c.layout.plot.y + y];
   }
@@ -129,7 +129,7 @@ describe('K 线（引擎集成）', () => {
       ],
     });
     expect(c.seriesComponents[0]).toBeInstanceOf(CandlestickSeries);
-    const x = c.norm.xAxis.scale!.map(c.norm.series[0].points[0].xValue);
+    const x = c.norm.xAxis.scale!.map(c.norm.series[0].xValueAt(0));
     const y = c.norm.yAxes[0].scale!.map(110);
     c.controller.handlePointerMove(c.layout.plot.x + x, c.layout.plot.y + y);
     expect(c.tooltip!.content!.rows[0].value).toBe('100');
@@ -157,7 +157,7 @@ describe('K 线（引擎集成）', () => {
       },
       { priceLabels: { open: 'O', high: 'H', low: 'L', close: 'C' } }
     );
-    const x = c.norm.xAxis.scale!.map(c.norm.series[0].points[0].xValue);
+    const x = c.norm.xAxis.scale!.map(c.norm.series[0].xValueAt(0));
     const y = c.norm.yAxes[0].scale!.map(110);
     c.controller.handlePointerMove(c.layout.plot.x + x, c.layout.plot.y + y);
     const content = c.tooltip!.content!;
@@ -197,7 +197,7 @@ describe('K 线（引擎集成）', () => {
       series: [{ id: 'l', type: 'line', name: '均线', data: [100, 105, 110] }],
     });
     expect(c.norm.yAxes[0].option.min).toBeUndefined();
-    const x = c.norm.xAxis.scale!.map(c.norm.series[0].points[1].xValue);
+    const x = c.norm.xAxis.scale!.map(c.norm.series[0].xValueAt(1));
     const y = c.norm.yAxes[0].scale!.map(105);
     c.controller.handlePointerMove(c.layout.plot.x + x, c.layout.plot.y + y);
     expect(c.tooltip!.content).not.toBeNull();

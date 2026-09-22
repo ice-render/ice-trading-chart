@@ -1,6 +1,7 @@
 import type { DataPoint, ICEChart, InternalSeries } from '@damoqiongqiu/ice-chart';
 import { readOhlc } from './ohlc';
 import { readVolume } from './volume';
+import { candleColumns } from './series/candleColumns';
 import type { VolumeOption } from './types';
 
 /** 一根 K 线的读数（抬头、提示框、价签都用同一份）。 */
@@ -74,13 +75,19 @@ export function createOhlcReadout(chart: ICEChart, options: OhlcReadoutOptions =
   };
 
   const build = (series: InternalSeries, index: number): OhlcReading | null => {
-    const points: DataPoint[] = series.points || [];
-    if (!points.length) return null;
-    const i = Math.max(0, Math.min(points.length - 1, index));
-    const point = points[i];
+    /**
+     * 读点走 ice-chart 的**统一访问器**（`pointCount` / `pointAt`），不直读 `series.points`：
+     * K 线默认开列存（`virtual`）之后 `points` 是空的，直读会让抬头永远读不出东西。
+     */
+    const total = series.pointCount;
+    if (!total) return null;
+    const i = Math.max(0, Math.min(total - 1, index));
+    const point = series.pointAt(i);
+    if (!point) return null;
     const ohlc = readOhlc(point.raw, series.option as any);
     if (!ohlc) return null;
-    const base = i > 0 ? readOhlc(points[i - 1].raw, series.option as any) : null;
+    const previous = i > 0 ? series.pointAt(i - 1) : null;
+    const base = previous ? readOhlc(previous.raw, series.option as any) : null;
     const prevClose = base ? base[1] : ohlc[0];
     const change = ohlc[1] - prevClose;
     const changePct = prevClose ? (change / prevClose) * 100 : 0;
@@ -110,12 +117,14 @@ export function createOhlcReadout(chart: ICEChart, options: OhlcReadoutOptions =
    */
   let lastRealCache: { length: number; index: number } | null = null;
   const lastRealIndex = (series: InternalSeries): number => {
-    const points: DataPoint[] = series.points || [];
-    if (!points.length) return 0;
-    if (lastRealCache && lastRealCache.length === points.length) return lastRealCache.index;
-    let index = points.length - 1;
-    while (index > 0 && !readOhlc(points[index].raw, series.option as any)) index--;
-    lastRealCache = { length: points.length, index };
+    // 同样走统一访问器；列存的「这一根读不读得出」直接查列（valid），不再逐根解析 raw
+    const total = series.pointCount;
+    if (!total) return 0;
+    if (lastRealCache && lastRealCache.length === total) return lastRealCache.index;
+    const columns = candleColumns(series.option.data, series.option as any);
+    let index = total - 1;
+    while (index > 0 && columns.valid[index] === 0) index--;
+    lastRealCache = { length: total, index };
     return index;
   };
 
