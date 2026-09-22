@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>ice-trading-chart · 大窗口 K 线流（列存 + 环形缓冲）</title>
+    <style>
+      /* 自包含样式：本仓没有公共 assets 目录（另一个示例页也是内联样式） */
+      :root {
+        --bg: #f8fafc;
+        --panel: #ffffff;
+        --line: #e2e8f0;
+        --text: #0f172a;
+        --dim: #475569;
+        --accent: #2563eb;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; padding: 16px 20px 32px;
+        background: var(--bg); color: var(--text);
+        font: 13px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
+      }
+      h1 { font-size: 20px; margin: 0 0 8px; }
+      .lead { color: var(--dim); max-width: 980px; margin: 0 0 12px; }
+      .card {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+        padding: 12px; margin-bottom: 12px;
+      }
+      .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+      .btn {
+        font: inherit; padding: 5px 12px; border-radius: 8px;
+        border: 1px solid var(--line); background: #fff; color: var(--text); cursor: pointer;
+      }
+      .btn:hover { border-color: var(--accent); color: var(--accent); }
+      .stat { color: var(--dim); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .stat b { color: var(--text); }
+      #log { white-space: pre-wrap; font-size: 12px; color: var(--dim); min-height: 3em; }
+    </style>
+  </head>
+  <body>
+    <h1>大窗口 K 线流：列存 + 环形缓冲</h1>
+    <p class="lead">
+      K 线默认走 ice-chart 的<b>列存</b>（`virtual`）：不建「每根一个数据点对象」。
+      这里再往前一步 —— <b>实时追加走环形缓冲</b>：窗口满了覆盖最老的一根，
+      每次追加是「写一个槽位 + 挪一次起点」，<b>不 concat、不重跑数据链路</b>。
+      按钮可以在「环形追加」与「全量 setOption」之间切换，直接对比每 tick 的成本。
+    </p>
+
+    <div class="card">
+      <div class="row">
+        <button class="btn" id="btn-pause">暂停</button>
+        <button class="btn" id="btn-loop">环形追加</button>
+        <button class="btn" id="btn-option">全量 setOption（对照）</button>
+        <button class="btn" id="btn-reset">重建</button>
+          <span class="stat">窗口 <b id="stat-window">0</b> 根</span>
+          <span class="stat">数据路径 <b id="stat-tick">0</b> ms</span>
+          <span class="stat">视窗推进 <b id="stat-view">0</b> ms</span>
+        <span class="stat">堆 <b id="stat-heap">-</b> MB</span>
+        <span class="stat">模式 <b id="stat-mode">环形</b></span>
+      </div>
+    </div>
+
+    <div class="card"><canvas id="chart" width="1200" height="460"></canvas></div>
+    <div class="card"><div id="log">事件日志：</div></div>
+
+    <script src="../node_modules/ice-render/dist/index.umd.js"></script>
+    <script src="../node_modules/@damoqiongqiu/ice-chart/dist/index.umd.js"></script>
+    <script src="../dist/index.umd.js"></script>
+    <script>
+      class StreamingCandlesPage {
+        /** 滚动窗口（根）：默认 1 万，可用 `?window=2000` 调（看成本随窗口怎么长）。 */
+        static WINDOW = Number(new URLSearchParams(location.search).get('window')) || 10000;
+        /** 价格轴用「最近多少根」的量程（真实终端也是这么做的：轴跟着一段窗口走）。 */
+        static AXIS_WINDOW = 400;
+        /** 每多少 tick 重钉一次价格轴。 */
+        static AXIS_EVERY = 30;
+
+        constructor() {
+          this.mode = 'ring';
+          this.running = true;
+          this.tick = 0;
+          this.price = 42000;
+          this.seedRows = [];
+          this.recent = [];
+          this.windowRows = [];
+          this.chart = null;
+          this.tickMs = 0;
+          this.viewMs = 0;
+          this.lastPaintAt = 0;
+          this.seed();
+          this.mount();
+          this.bind();
+          this.loop();
+        }
+
+        /** 一根新 K 线：随机游走 + 影线，**四价自洽**（low ≤ o,c ≤ high）。 */
+        nextCandle(x) {
+          const open = this.price;
+          const close = open + (Math.random() - 0.5) * 60;
+          const high = Math.max(open, close) + Math.random() * 24;
+          const low = Math.min(open, close) - Math.random() * 24;
+          this.price = close;
+          return { x, o: open, c: close, l: low, h: high, v: 100 + Math.round(Math.random() * 900) };
+        }
+
+        /** 类目标签逐根唯一（类目轴按字符串去重，重复会让两根 K 塌缩到一个类目上）。 */
+        keyOf(index) {
+          const minutes = index % (24 * 60);
+          const day = Math.floor(index / (24 * 60)) + 1;
+          const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+          const mm = String(minutes % 60).padStart(2, '0');
+          return `D${day} ${hh}:${mm}`;
+        }
+
+        seed() {
+          this.seedRows = [];
+          this.price = 42000;
+          for (let i = 0; i < StreamingCandlesPage.WINDOW; i++) {
+            this.seedRows.push(this.nextCandle(this.keyOf(i)));
+          }
+          this.windowRows = this.seedRows.slice();
+          this.recent = this.seedRows.slice(-StreamingCandlesPage.AXIS_WINDOW);
+          this.tick = StreamingCandlesPage.WINDOW;
+        }
+
+        /** 最近窗口的影线极值 → 价格轴量程（含留白）。 */
+        axisRange() {
+          let min = Infinity;
+          let max = -Infinity;
+          for (const row of this.recent) {
+            if (row.l < min) min = row.l;
+            if (row.h > max) max = row.h;
+          }
+          if (!isFinite(min) || !isFinite(max)) return null;
+          const pad = (max - min) * 0.06 || 1;
+          return { min: min - pad, max: max + pad };
+        }
+
+        mount() {
+          const t0 = performance.now();
+          this.chart = ICETradingChart.createTradingChart(
+            'chart',
+            {
+              legend: { show: false },
+              animation: { enabled: false },
+              tooltip: { trigger: 'item' },
+              xAxis: { type: 'category' },
+              yAxis: { name: '价格' },
+              series: [
+                {
+                  id: 'k',
+                  type: 'candlestick',
+                  name: 'K 线',
+                  // `virtual: true` 已是默认（列存），这里显式写出来当例子
+                  virtual: true,
+                  data: this.seedRows,
+                },
+              ],
+            },
+            {
+              // 窗口式数据源：data 会被列存接管，量程由应用给（含影线）
+              priceRange: this.axisRange(),
+              pricePrecision: 2,
+              autoVolume: false,
+            }
+          );
+          this.buildMs = performance.now() - t0;
+          // 暴露给调试与探针（示例页的惯例：window.__chart）
+          window.__chart = this.chart;
+        }
+
+        bind() {
+          const on = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', handler);
+          };
+          on('btn-pause', () => {
+            this.running = !this.running;
+            document.getElementById('btn-pause').textContent = this.running ? '暂停' : '继续';
+          });
+          on('btn-loop', () => this.setMode('ring'));
+          on('btn-option', () => this.setMode('option'));
+          on('btn-reset', () => {
+            this.seed();
+            this.mount();
+            this.write(`重建：窗口 ${StreamingCandlesPage.WINDOW} 根，构建 ${this.buildMs.toFixed(0)}ms`);
+          });
+        }
+
+        setMode(mode) {
+          if (this.mode === mode) return;
+          this.mode = mode;
+          document.getElementById('stat-mode').textContent = mode === 'ring' ? '环形' : '全量 setOption';
+          this.write(mode === 'ring' ? '切到环形追加（appendData + maxPoints）' : '切到全量 setOption（对照）');
+          // 换路要重建：环形那条会把 option 里的 data 摘掉
+          this.seed();
+          this.mount();
+        }
+
+        /** 一次推送：环形走 appendData；对照走「改数组 + setData」。 */
+        push(row) {
+          const t0 = performance.now();
+          if (this.mode === 'ring') {
+            this.chart.appendData('k', [row], { maxPoints: StreamingCandlesPage.WINDOW });
+          } else {
+            this.windowRows.push(row);
+            if (this.windowRows.length > StreamingCandlesPage.WINDOW) this.windowRows.shift();
+            this.chart.setData('k', this.windowRows);
+          }
+          this.tickMs = performance.now() - t0;
+        }
+
+        /** 页面自己那一小段「最近窗口」：给价格轴用量程（两个模式共用）。 */
+        trackRecent(row) {
+          this.recent.push(row);
+          if (this.recent.length > StreamingCandlesPage.AXIS_WINDOW) this.recent.shift();
+        }
+
+        loop() {
+          const frame = () => {
+            this.step();
+            this.onUpdate();
+            requestAnimationFrame(frame);
+          };
+          requestAnimationFrame(frame);
+        }
+
+        step() {
+          if (!this.running) return;
+          this.tick += 1;
+          const row = this.nextCandle(this.keyOf(this.tick));
+          this.trackRecent(row);
+          this.push(row);
+          if (this.tick % StreamingCandlesPage.AXIS_EVERY === 0) {
+            const range = this.axisRange();
+            // 运行时改价格轴量程走公开 API（不必重建 option）
+            if (range) this.chart.setDomain('y', [range.min, range.max], 'api');
+          }
+          // 视窗跟着最新一根走（前 40% 是历史，看起来像真实看盘）——单独计时：
+          // 这一步的开销是「重排版 + 轴 + 重绘」，与数据怎么存无关
+          const t0 = performance.now();
+          this.chart.setDomainFromFractions(0.6, 1, 'api');
+          this.viewMs = performance.now() - t0;
+        }
+
+        onUpdate() {
+          const now = performance.now();
+          if (now - this.lastPaintAt < 250) return;
+          this.lastPaintAt = now;
+          const memory = performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null;
+          document.getElementById('stat-window').textContent = String(this.chart.norm.series[0].pointCount);
+          document.getElementById('stat-tick').textContent = this.tickMs.toFixed(2);
+          document.getElementById('stat-view').textContent = this.viewMs.toFixed(2);
+          document.getElementById('stat-heap').textContent = memory === null ? '-' : memory.toFixed(1);
+        }
+
+        write(line) {
+          const log = document.getElementById('log');
+          log.textContent = `${new Date().toLocaleTimeString()}  ${line}\n` + log.textContent;
+        }
+      }
+
+      new StreamingCandlesPage();
+    </script>
+  </body>
+</html>

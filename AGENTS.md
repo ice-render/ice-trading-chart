@@ -92,6 +92,14 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
      `xValueAt(i)`，**不许直读 `series.points`**（列存下它是空的 —— 抬头读数踩过）；
   ② `renderAs: 'line'/'area'` **不加**这个默认：那会变成引擎的内置数值列系列，
      而类目轴（时间字符串）不吃那条路（会显式报错）。
+- **大窗口的实时滚动走环形缓冲**（`appendData(id, [row], { maxPoints })`）：
+  窗口满了覆盖最老的一根，**不 concat、不重建数据点**。两条配套：
+  ① 环形形态下 `series.data` 会从 option 里摘掉（原始数据归存储所有）→
+     价格轴量程要由应用给：`createTradingChart(target, option, { priceRange })`，
+     运行中调整用公开的 `setDomain('y', [min, max])`；
+  ② 每 tick 的成本 = **数据路径（0.1ms 级，O(1)）+ 图表流水线（归一化 / 布局 / 同步组件，~1.6ms）**。
+     后者与「数据怎么存」无关，是目前的地板（要再压得让上游支持增量归一化 / 布局）。
+  实测见 `examples/streaming-candles.html`（窗口 1 万根，页内自带环形 / 全量 setOption 的 A/B）。
 
 **上游瓶颈已修（ice-chart 0.29.1）**：`Axis.tickEntries()` 原来为**每一个类目**调
 `scale.map()` + `formatTick()`，而类目轴的 `map` 内部是线性查类目 —— 10 万个类目时 `axisX`
