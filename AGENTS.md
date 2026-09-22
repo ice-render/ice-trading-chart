@@ -106,7 +106,11 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
      价格轴量程要由应用给：`createTradingChart(target, option, { priceRange })`，
      运行中调整用公开的 `setDomain('y', [min, max])`；
   ② 每 tick 的成本 = **数据路径（0.1ms 级，O(1)）+ 图表流水线（归一化 / 布局 / 同步组件，~1.6ms）**。
-     后者与「数据怎么存」无关，是目前的地板（要再压得让上游支持增量归一化 / 布局）。
+     后者与「数据怎么存」无关，是目前的地板。**这条已记录、未开工**：
+     施工图与验收在上游 `ice-chart` 的 `plans/incremental-pipeline.md`，
+     尺子是 `ice-chart` 的 `scripts/measure-pipeline.mjs`（可以 `--url` 指向本仓的
+     `examples/streaming-candles.html`）。本仓要做的配合：等上游给出「数据只是追加」的信号后，
+     把 `candleColumnsFor` 的增量路径接上（现在它已经能识别环滑动与尾部追加）。
   实测见 `examples/streaming-candles.html`（窗口 1 万根，页内自带环形 / 全量 setOption 的 A/B）。
 
 **上游瓶颈已修（ice-chart 0.29.1）**：`Axis.tickEntries()` 原来为**每一个类目**调
