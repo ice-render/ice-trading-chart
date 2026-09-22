@@ -1,6 +1,6 @@
 import { SeriesBase } from '@damoqiongqiu/ice-chart';
 import type { SeriesType } from '@damoqiongqiu/ice-chart';
-import { candleColumns } from './candleColumns';
+import { candleColumnsFor } from './candleColumns';
 import type { CandleColumns } from './candleColumns';
 import type { TradingSeriesOption } from '../types';
 
@@ -58,11 +58,13 @@ export class CandlestickSeries extends SeriesBase {
   }
 
   private columns(): CandleColumns {
-    const cache = this.columnsCache;
-    if (cache && cache.points === this.series.points) return cache.columns;
-    const columns = candleColumns(this.candleOption.data, this.candleOption);
-    this.columnsCache = { points: this.series.points, columns };
-    return columns;
+    /**
+     * 走**系列感知**的列存（`candleColumnsFor`）：数据来源优先是系列自己的存储，而不是
+     * `option.data` —— K 线走列存 + `appendData(..., { maxPoints })` 之后 `data` 会被摘掉，
+     * 照 `option.data` 建列会得到一份空列，蜡烛**静默不画**（实测踩到）。
+     * 缓存按存储对象增量维护：环滑动 O(滑动格数)、尾部追加 O(新增根数)。
+     */
+    return candleColumnsFor(this.series, this.candleOption);
   }
 
   public hitTestIndex(localX: number, localY: number): number {
