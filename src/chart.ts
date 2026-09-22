@@ -65,7 +65,18 @@ function renderSeriesList(seriesList: TradingSeriesOption[]): SeriesOption[] {
   return seriesList.map((series) => {
     if (!isCandle(series)) return series as SeriesOption;
     const renderAs = series.renderAs;
-    if (!renderAs || renderAs === CANDLESTICK_TYPE) return series as SeriesOption;
+    /**
+     * K 线（**最终仍是 candlestick**）默认开列存：ice-chart 0.30 起 `virtual` 对自定义系列
+     * 也成立 —— 不建「每根一个 `DataPoint`」的数组（10 万根省 5~6MB、100 万根省 50MB 量级），
+     * 原始数据仍按引用保留（提示框的 `params.data`、本包自己的字段解析都照旧），
+     * 像素缓存也照旧。用户显式写 `virtual: false` 时不覆盖。
+     *
+     * `renderAs: 'line'/'area'` **不加**这个默认：那会把系列变成引擎内置的数值列系列，
+     * 而类目轴（时间字符串）不吃数值列那条路（会显式报错）—— 要列存得用户自己声明。
+     */
+    if (!renderAs || renderAs === CANDLESTICK_TYPE) {
+      return { ...series, virtual: series.virtual !== false } as SeriesOption;
+    }
     return { ...series, type: renderAs } as SeriesOption;
   });
 }

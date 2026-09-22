@@ -84,6 +84,14 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
 - **公开的单根几何**：`candleRectAt(i)`（绘制 / 命中 / 外壳读数共用同一套设备像素对齐），
   `visibleRange(pad)` 公开给外壳与审计断言用。
 - **不要用 `seriesComponent.pixelAt()`** 做外壳定位（动画期间是补间位置）—— 这条没变，见下一节。
+- **K 线默认开上游的列存**（`toTradingOption` 里给 candle 系列加 `virtual: true`，
+  用户显式写 `virtual: false` 时不覆盖）：ice-chart 0.30 起 `virtual` 对**自定义系列**
+  也成立 —— 走「惰性原始点」：**不建每根一个 `DataPoint`**（10 万根省 ~6MB、100 万根省 ~60MB），
+  原始数据仍按引用保留（提示框 `params.data`、本包自己的字段解析都照旧），**像素缓存也照旧**。
+  两条纪律：① 读点一律走 `series.pointCount` / `series.pointAt(i)` /
+     `xValueAt(i)`，**不许直读 `series.points`**（列存下它是空的 —— 抬头读数踩过）；
+  ② `renderAs: 'line'/'area'` **不加**这个默认：那会变成引擎的内置数值列系列，
+     而类目轴（时间字符串）不吃那条路（会显式报错）。
 
 **上游瓶颈已修（ice-chart 0.29.1）**：`Axis.tickEntries()` 原来为**每一个类目**调
 `scale.map()` + `formatTick()`，而类目轴的 `map` 内部是线性查类目 —— 10 万个类目时 `axisX`

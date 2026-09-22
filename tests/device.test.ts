@@ -134,7 +134,7 @@ describe('蜡烛的水平对齐（影线必须严格在实体正中）', () => {
         // 逐根取（接口就是单根：绘制 / 命中都只按可见窗口逐根算，不建全量矩形数组）
         const rect = comp.candleRectAt(i);
         if (!rect) continue;
-        const cx = chart.norm.xAxis.scale!.map(series.points[i].xValue);
+        const cx = chart.norm.xAxis.scale!.map(series.xValueAt(i));
         const geometry = comp.candleGeometry(cx, bodyWidth, wickWidth);
         // 影线中轴与实体中轴完全重合（历史上这里稳定偏 0.5 个设备像素）
         expect(geometry.wickX).toBeCloseTo(rect.x + rect.width / 2, 10);
