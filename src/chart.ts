@@ -15,6 +15,16 @@ import type { TradingChartOption, TradingSeriesOption, VolumeOption } from './ty
 export interface TradingChartExtras {
   /** 价格轴范围（含影线）的留白比例，默认 0.06。 */
   pricePadding?: number;
+  /**
+   * **显式价格轴范围**（含影线），给了就不再从 `series.data` 推算。
+   *
+   * 什么时候需要它：数据走**窗口式数据源**时（`virtual: true` + `appendData(..., { maxPoints })`
+   * 的环形缓冲），`series.data` 会从 option 里摘掉（原始数据归存储所有）——
+   * 这时库没法再扫一遍原始数组算影线极值，量程得由应用给（它自己那份窗口数据里就能算，
+   * 也可以直接用 `computePriceRange()`）。
+   * 不给且读不出数据时，退回 ice-chart 的自动量程（只看收盘价，影线可能被裁）。
+   */
+  priceRange?: { min: number; max: number } | null;
   /** 提示框里四个价（与量）的行名。 */
   priceLabels?: CandleLabels;
   /**
@@ -150,7 +160,8 @@ export function toTradingOption(option: TradingChartOption, extras: TradingChart
   let axesTouched = false;
 
   if (extras.autoPriceRange !== false) {
-    const range = computePriceRange(seriesList, { padding: extras.pricePadding });
+    // 显式给了就赢过推算（窗口式数据源下 series.data 会被摘掉，只能由应用给）
+    const range = extras.priceRange || computePriceRange(seriesList, { padding: extras.pricePadding });
     if (range) {
       axes[0] = withPriceRange(axes[0], range);
       axesTouched = true;
