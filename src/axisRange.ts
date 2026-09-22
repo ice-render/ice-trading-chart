@@ -1,4 +1,4 @@
-import { readOhlc } from './ohlc';
+import { candleColumns } from './series/candleColumns';
 import type { PriceRangeOptions, PriceRange, TradingSeriesOption } from './types';
 
 /** 影线会让价格轴比「只用收盘价」宽一截，默认上下各留 6%（ice-chart 对固定端不加留白）。 */
@@ -21,13 +21,11 @@ export function computePriceRange(
   let max = -Infinity;
   for (const series of seriesList || []) {
     if (!series || series.type !== 'candlestick') continue;
-    const data = Array.isArray(series.data) ? series.data : [];
-    for (const raw of data) {
-      const ohlc = readOhlc(raw, series);
-      if (!ohlc) continue;
-      min = Math.min(min, ohlc[2]);
-      max = Math.max(max, ohlc[3]);
-    }
+    // 与渲染 / 命中**共用同一份列存**（同一趟扫描）：量程不再各解析一遍 raw
+    const columns = candleColumns(series.data, series);
+    if (columns.validCount === 0) continue;
+    min = Math.min(min, columns.priceMin);
+    max = Math.max(max, columns.priceMax);
   }
   if (!isFinite(min) || !isFinite(max)) return null;
 

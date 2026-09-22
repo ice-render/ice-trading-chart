@@ -86,9 +86,10 @@ describe('K 线（引擎集成）', () => {
     const chart = await mount(CANDLE_OPTION);
     const comp: any = chart.seriesComponents[0];
     const spy = jest.spyOn(comp, 'drawHoverOverlay');
-    const rect = comp.candleRects()[1];
     const { plot } = chart.layout;
-    chart.controller.handlePointerMove(plot.x + rect.x + rect.width / 2, plot.y + rect.y + rect.height / 2);
+    // 第二根的屏幕位置直接查比例尺（不依赖系列内部的像素缓存 / 矩形数组）
+    const [sx, sy] = screenOf(chart, 1, 110);
+    chart.controller.handlePointerMove(sx, sy);
     await chart.render();
 
     // 悬停确实命中了第二根（否则这条测试会假绿）
