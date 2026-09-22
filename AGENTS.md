@@ -92,6 +92,14 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
      `xValueAt(i)`，**不许直读 `series.points`**（列存下它是空的 —— 抬头读数踩过）；
   ② `renderAs: 'line'/'area'` **不加**这个默认：那会变成引擎的内置数值列系列，
      而类目轴（时间字符串）不吃那条路（会显式报错）。
+- **列存的数据来源是「系列」，不是 `option.data`**（`candleColumnsFor(series, option)`）：
+  环形形态下原始数据归存储所有、`option.data` 被摘掉，照它建列会得到**空列** ——
+  蜡烛**静默不画**，而画布上还有坐标轴，冒烟测试照样绿（实测踩到：`validCount === 0`，
+  画布只剩轴）。取数一律走公开访问器 `series.pointAt(i).raw`。
+  缓存按**存储对象**（或数据数组）做键，并做增量维护：环滑动按 `raw.start` 平移几格
+  （`copyWithin` + 只解析新进来的），尾部追加只解析新增的 —— 于是「追加一根」是 O(1)，
+  不是每次重扫整个窗口。类目索引表存的是**相对偏移**（`shiftOffset`），滑动不必重写整张 Map。
+  ⚠️ 增量之后极值是陈旧的（滑动可能淘汰掉极值那根）：要精确极值先调 `ensureCandleRange()`。
 - **大窗口的实时滚动走环形缓冲**（`appendData(id, [row], { maxPoints })`）：
   窗口满了覆盖最老的一根，**不 concat、不重建数据点**。两条配套：
   ① 环形形态下 `series.data` 会从 option 里摘掉（原始数据归存储所有）→

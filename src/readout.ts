@@ -1,7 +1,7 @@
 import type { DataPoint, ICEChart, InternalSeries } from '@damoqiongqiu/ice-chart';
 import { readOhlc } from './ohlc';
 import { readVolume } from './volume';
-import { candleColumns } from './series/candleColumns';
+import { candleColumnsFor } from './series/candleColumns';
 import type { VolumeOption } from './types';
 
 /** 一根 K 线的读数（抬头、提示框、价签都用同一份）。 */
@@ -121,7 +121,8 @@ export function createOhlcReadout(chart: ICEChart, options: OhlcReadoutOptions =
     const total = series.pointCount;
     if (!total) return 0;
     if (lastRealCache && lastRealCache.length === total) return lastRealCache.index;
-    const columns = candleColumns(series.option.data, series.option as any);
+    // 系列感知的列存：环形形态下 option.data 是空的，照它建列会一路 false（静默读不出东西）
+    const columns = candleColumnsFor(series, series.option as any);
     let index = total - 1;
     while (index > 0 && columns.valid[index] === 0) index--;
     lastRealCache = { length: total, index };

@@ -1,6 +1,6 @@
 {
   "name": "ice-trading-chart",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "author": "大漠穷秋",
   "description": "基于 ice-chart 的金融交易图表库：K 线、影线命中、OHLC 提示框、价格轴量程。",

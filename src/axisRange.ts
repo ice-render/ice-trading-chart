@@ -1,4 +1,4 @@
-import { candleColumns } from './series/candleColumns';
+import { candleColumns, ensureCandleRange } from './series/candleColumns';
 import type { PriceRangeOptions, PriceRange, TradingSeriesOption } from './types';
 
 /** 影线会让价格轴比「只用收盘价」宽一截，默认上下各留 6%（ice-chart 对固定端不加留白）。 */
@@ -23,6 +23,8 @@ export function computePriceRange(
     if (!series || series.type !== 'candlestick') continue;
     // 与渲染 / 命中**共用同一份列存**（同一趟扫描）：量程不再各解析一遍 raw
     const columns = candleColumns(series.data, series);
+    // 列可能是增量维护过的（环形滑动淘汰过极值），要极值先让它算准
+    ensureCandleRange(columns);
     if (columns.validCount === 0) continue;
     min = Math.min(min, columns.priceMin);
     max = Math.max(max, columns.priceMax);

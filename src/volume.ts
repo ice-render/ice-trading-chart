@@ -108,7 +108,7 @@ export function buildVolumeSeries(
     const rising = ohlc ? ohlc[1] >= ohlc[0] : true;
     const item: Record<string, unknown> = { value: volume, color: rising ? upColor : downColor };
     if (x !== undefined) item.x = x;
-    data.push(item);
+  data.push(item);
   }
   if (!readable) return null;
   return {
@@ -117,6 +117,11 @@ export function buildVolumeSeries(
     name: `${source.name || source.id} 量`,
     yAxisIndex: option.axisIndex === undefined ? DEFAULT_VOLUME_AXIS : option.axisIndex,
     barWidth: option.barWidth === undefined ? DEFAULT_VOLUME_BAR_WIDTH : option.barWidth,
+    /**
+     * 派生的量柱也开列存（惰性原始点）：不建「每根一个 `DataPoint`」——
+     * 1 万根省 ~0.6MB、100 万根省 ~60MB。原始数据仍在（提示框与量程照旧）。
+     */
+    virtual: true,
     data: data as any[],
   } as SeriesOption;
 }
