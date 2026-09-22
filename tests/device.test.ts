@@ -125,14 +125,14 @@ describe('蜡烛的水平对齐（影线必须严格在实体正中）', () => {
       const comp: any = chart.seriesComponents[0];
       const series = chart.norm.series[0];
       const scale = 1 / comp.unit();
-      const rects = comp.candleRects();
       const bodyWidth = comp.resolveBodyWidth(chart.norm.xAxis.scale!.bandwidth());
       const style = resolveCandleStyle(series.option);
       const wickWidth = Math.max(comp.unit(), style.borderWidth * comp.unit() * chart.ice.dpr);
 
       let checked = 0;
-      for (let i = 0; i < rects.length; i++) {
-        const rect = rects[i];
+      for (let i = 0; i < series.pointCount; i++) {
+        // 逐根取（接口就是单根：绘制 / 命中都只按可见窗口逐根算，不建全量矩形数组）
+        const rect = comp.candleRectAt(i);
         if (!rect) continue;
         const cx = chart.norm.xAxis.scale!.map(series.points[i].xValue);
         const geometry = comp.candleGeometry(cx, bodyWidth, wickWidth);
