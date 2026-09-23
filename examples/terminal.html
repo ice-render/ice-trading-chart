@@ -1065,6 +1065,8 @@
         book = null;
         /** 盘口的聚合精度（0 = 原始档位）；面板头的下拉改它，转手给 `book.setPriceStep`。 */
         bookStep = 0;
+        /** 并存对照用的库工具条（`?toolbar=lib` 才挂）。 */
+        libToolbar = null;
         bookData = { asks: [], bids: [] };
         /** 指针位置：`{ pane, x, y }`，`x`/`y` 是**那一块 pane 画布内**的坐标；不在图上时为 null。 */
         pointer = null;
@@ -1941,6 +1943,7 @@
           };
           this.syncChromeBox();
           this.syncDrawBar();
+          this.mountLibraryToolbarIfAsked();
           if (this.chrome.priceLegend) {
             this.chrome.priceLegend.addEventListener('click', (evt) => {
               const item = evt.target && evt.target.closest ? evt.target.closest('[data-series]') : null;
@@ -2282,7 +2285,59 @@
          * 主流看盘软件的顶部工具条是图标，图标本身说不出「现在开着没」——
          * 所以指标开着、画线武装着（或已经画了东西）、显示改了默认值时各点一个圆点。
          */
+        /**
+         * **并存对照**：`?toolbar=lib` 时把库里的 `createChartToolbar` 挂到自绘那条下面。
+         *
+         * 这一步的目的不是"上线新工具条"，而是**验证库的 API 够不够表达页面已有的命令**：
+         * 所以这里的宿主回调**不复制任何业务逻辑** —— 读状态从页面读，写意图就点一下页面已有的控件，
+         * 让它们照旧走那条委托处理器。等价性因此是结构性成立的（同一条代码路径），不是"看着一样"。
+         */
+        mountLibraryToolbarIfAsked() {
+          if (location.search.indexOf('toolbar=lib') < 0) return;
+          if (this.libToolbar) return;
+          const host = document.createElement('div');
+          host.id = 'lib-toolbar';
+          const bar = document.getElementById('chart-bar');
+          if (!bar || !bar.parentNode) return;
+          bar.parentNode.insertBefore(host, bar.nextSibling);
+          const clickIfFound = (selector) => {
+            const node = document.querySelector(selector);
+            if (node) node.click();
+          };
+          this.libToolbar = ICETradingChart.createChartToolbar({
+            host: {
+              interval: () => this.intervalKey,
+              onIntervalChange: (next) => clickIfFound('[data-interval="' + next + '"]'),
+              indicators: () => [
+                { id: 'ma', label: '均线', on: !!this.indicators.ma },
+                { id: 'ema', label: 'EMA', on: !!this.indicators.ema },
+                { id: 'boll', label: '布林带', on: !!this.indicators.boll },
+              ],
+              onToggleIndicator: (id) => clickIfFound('.chart-bar [data-ind="' + id + '"]'),
+              drawingTool: () => (this.drawing ? this.drawing.mode() || 'none' : 'none'),
+              onDrawingToolChange: (tool) => clickIfFound('[data-tool="' + tool + '"]'),
+              // 用页面**真实存在**的那几个显示开关（id 与 data-display 取值必须一一对应，
+              // 否则点了是静默无效 —— 这种"接上了但没反应"的坑本仓踩过好几次）
+              displayItems: () => [
+                { id: 'magnet', label: '磁吸开高低收', on: !!this.magnet },
+                { id: 'volumeMa', label: '均量线', on: !!this.volumeMa },
+                { id: 'sessionLines', label: '会话分隔线', on: !!this.sessionLines },
+              ],
+              onToggleDisplay: (id) => clickIfFound('.chart-bar [data-display="' + id + '"]'),
+              chartType: () => this.chartType,
+              onChartTypeChange: (type) => clickIfFound('.chart-bar [data-type="' + type + '"]'),
+              chart: this.stack ? this.stack.chartOf('price') : null,
+              stack: this.stack,
+            },
+            messages: this.messages,
+            theme: this.terminalTheme,
+          });
+          if (this.libToolbar.element) host.appendChild(this.libToolbar.element);
+        }
+
         syncToolbarState() {
+          // 并存对照期间：库的那条也按同一份状态刷新（它只读状态、不存状态）
+          if (this.libToolbar) this.libToolbar.update();
           // 用周期**本身**（"5m"），和旁边那排收藏项同一个写法 —— 写成「5 分钟」就重复了
           const label = document.querySelector('.tb-trigger [data-tb="interval"]');
           if (label) label.textContent = this.intervalKey;
