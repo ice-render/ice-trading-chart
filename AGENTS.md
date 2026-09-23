@@ -105,12 +105,14 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
   ① 环形形态下 `series.data` 会从 option 里摘掉（原始数据归存储所有）→
      价格轴量程要由应用给：`createTradingChart(target, option, { priceRange })`，
      运行中调整用公开的 `setDomain('y', [min, max])`；
-  ② 每 tick 的成本 = **数据路径（0.1ms 级，O(1)）+ 图表流水线（归一化 / 布局 / 同步组件，~1.6ms）**。
-     后者与「数据怎么存」无关，是目前的地板。**这条已记录、未开工**：
-     施工图与验收在上游 `ice-chart` 的 `plans/incremental-pipeline.md`，
-     尺子是 `ice-chart` 的 `scripts/measure-pipeline.mjs`（可以 `--url` 指向本仓的
-     `examples/streaming-candles.html`）。本仓要做的配合：等上游给出「数据只是追加」的信号后，
-     把 `candleColumnsFor` 的增量路径接上（现在它已经能识别环滑动与尾部追加）。
+  ② 每 tick 的成本 = **数据路径（0.1ms 级，O(1)）+ 图表流水线**。后者与「数据怎么存」无关。
+     **上游已在 ice-chart 0.30.2 收掉这条**（施工图与验收在它的 `plans/incremental-pipeline.md`，
+     尺子是 `ice-chart` 的 `scripts/measure-pipeline.mjs`，可 `--url` 指向本仓的
+     `examples/streaming-candles.html`）：10 万根窗口 **15.0ms → 1.6ms/tick**、1 万根 **1.4 → 0.4ms**。
+     本仓这边**不需要再改代码** —— `candleColumnsFor` 的增量路径（环滑动按 `copyWithin` 平移 +
+     只解析新进来的那几根，类目索引存相对偏移）在 0.3.1 就已经接好了，
+     当时缺的正是「上游不再每帧整条重跑」这个前提。剩下的地板在**同一帧内多次
+     `setData` / `appendData` 合并**（上游施工图的 P4）与组件同步的差异更新（P2）。
   实测见 `examples/streaming-candles.html`（窗口 1 万根，页内自带环形 / 全量 setOption 的 A/B）。
 
 **上游瓶颈已修（ice-chart 0.29.1）**：`Axis.tickEntries()` 原来为**每一个类目**调
@@ -118,7 +120,9 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
 一次渲染 **3716ms**（K 线组件同期只要 15ms，也就是说这 3.7s 全在上游的坐标轴上）。
 0.29.1 修了两处通用问题：抽稀掉的刻度（`labels[i] === ''`）不进表 + `BandScale` 的
 类目查表缓存 → `axisX` **3716ms → 0ms**、首帧 **3737ms → 17ms**（10 万根 K 线实测）。
-所以本仓的 peer 下限是 `^0.30.1`（`^0.29.1` 起带这条修复，0.30.1 是家族当前版本）；
+所以本仓的 peer 下限是 `^0.30.1`（`^0.29.1` 起带这条修复；0.30.2 是家族当前版本，
+它带的是流水线那两刀的性能改进，**不是**本仓的功能前置 —— 所以下限按「修 bug 的那个版本」钉，
+继续留在 0.30.1，devDependency 则跟到 0.30.2，让本仓的回归跑最新内核）；
 **别把它退回 0.30 以下**，那会把这条修复一起丢掉。
 
 ## 用浏览器验证前必须先 build
