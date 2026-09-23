@@ -122,30 +122,12 @@
         padding: 2px 0 4px; border-bottom: 2px solid transparent;
       }
       .chart-bar .tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
-      .sep { width: 1px; height: 16px; background: var(--line); margin: 0 3px; }
-      .tb-menu { position: relative; }
-      .tb-trigger {
-        display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 6px;
-        background: none; border: 1px solid transparent; border-radius: 4px;
-        color: var(--dim); cursor: pointer; position: relative;
-      }
-      .tb-trigger:hover { background: var(--panel-2); color: var(--text); }
-      .tb-trigger svg { width: 16px; height: 16px; display: block; }
-      .tb-trigger .lbl { font: 12px/1 var(--mono); color: inherit; }
-      .tb-trigger .dot {
-        display: none; position: absolute; right: 3px; top: 3px; width: 4px; height: 4px;
-        border-radius: 50%; background: var(--accent);
-      }
-      .tb-trigger.on .dot { display: block; }
-      .tb-trigger.on { color: var(--text); }
-      .tb-menu.open .tb-trigger { color: var(--text); background: var(--panel-2); }
-      .tb-panel {
-        position: absolute; top: calc(100% + 5px); left: 0; z-index: 40; display: none;
-        min-width: 200px; max-height: 340px; overflow: auto;
-        background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55); padding: 5px;
-      }
-      .tb-menu.open .tb-panel { display: block; }
+      /*
+        工具条本体（周期 / 类型 / 指标 / 画线 / 显示）现在是**库里的组件**（`src/toolbar.ts`）：
+        触发器、下拉容器、主题变量、点空白处与 Esc 收起全在那边。下面这些类只描述**面板内容**
+        —— 也就是自定义面板 `menu()` 返回的那棵树（行 / 标题 / 输入框是页面自己的写法）。
+      */
+      .tb-panel-body { min-width: 190px; max-height: 320px; overflow: auto; }
       .tb-title { padding: 3px 7px; color: var(--muted); font-size: 11px; }
       .tb-item {
         display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 4px;
@@ -159,6 +141,28 @@
         width: 46px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
         color: var(--text); padding: 3px 4px; font: 12px/1.4 var(--mono);
       }
+      .tb-star { margin-left: auto; padding: 0 2px; color: var(--muted); opacity: 0.45; }
+      .tb-star:hover { opacity: 1; color: var(--accent); }
+      .tb-star.on { opacity: 1; color: var(--accent); }
+      .tb-form { display: flex; align-items: center; gap: 5px; padding: 4px 7px; }
+      .tb-form select, .tb-form button {
+        background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px;
+        color: var(--text); font: 11px/1.4 var(--mono); padding: 3px 4px;
+      }
+      .tb-form button { cursor: pointer; }
+      .tb-form button:hover { border-color: var(--accent); color: var(--accent); }
+      /* 第 3 层（整条替换）的极简自绘条：位置与高度仍由图表的占带给，内容完全是页面自己的 */
+      .mini-bar {
+        display: flex; align-items: center; gap: 4px; padding: 3px 8px;
+        border-bottom: 1px solid var(--line-soft);
+        font: 11px/1.6 var(--mono); color: var(--muted);
+      }
+      .mini-bar button {
+        background: none; border: 1px solid transparent; border-radius: 3px;
+        color: inherit; font: inherit; padding: 1px 5px; cursor: pointer;
+      }
+      .mini-bar button:hover { background: var(--panel-2); color: var(--text); }
+      .mini-bar button.on { color: var(--accent); border-color: var(--line); }
       .readout { margin-left: auto; color: var(--muted); font: 11px/1.4 var(--mono); }
 
       /* ---------------- 图表本体 ---------------- */
@@ -418,60 +422,6 @@
       <section class="panel chart-col">
         <div class="chart-bar" id="chart-bar">
           <div class="tabs"><button type="button" class="on" data-i18n="chart.tab">图表</button><button type="button" data-i18n="chart.info">信息</button><button type="button" data-i18n="chart.data">数据</button></div>
-          <span class="sep"></span>
-          <div class="tabs" id="tb-intervals"></div>
-          <div class="tb-menu" data-menu="intervals">
-            <button class="tb-trigger" type="button" title="周期" aria-label="周期" data-i18n-title="tool.intervals">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3">
-                <circle cx="8" cy="8" r="6.2" />
-                <path d="M8 4.4V8l2.6 1.6" stroke-linecap="round" />
-              </svg>
-              <b class="lbl" data-tb="interval">5m</b>
-            </button>
-            <div class="tb-panel" id="panel-intervals"></div>
-          </div>
-          <span class="sep"></span>
-          <div class="tb-menu" data-menu="type">
-            <button class="tb-trigger" type="button" title="图表类型" aria-label="图表类型" data-i18n-title="tool.type">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
-                <path d="M5 2.4v11.2M11 3.4v9.2" stroke-linecap="round" />
-                <rect x="3.3" y="5" width="3.4" height="6" rx="0.4" fill="currentColor" stroke="none" />
-                <rect x="9.3" y="5.8" width="3.4" height="4.4" rx="0.4" fill="currentColor" stroke="none" />
-              </svg>
-              <i class="dot"></i>
-            </button>
-            <div class="tb-panel" id="panel-type"></div>
-          </div>
-          <div class="tb-menu" data-menu="indicators">
-            <button class="tb-trigger" type="button" title="指标" aria-label="指标" data-i18n-title="tool.indicators">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                <path d="M3.2 12.4V8.6M8 12.4V3.6M12.8 12.4v-5.2" />
-              </svg>
-              <i class="dot"></i>
-            </button>
-            <div class="tb-panel" id="panel-indicators"></div>
-          </div>
-          <div class="tb-menu" data-menu="drawings">
-            <button class="tb-trigger" type="button" title="画线" aria-label="画线" data-i18n-title="tool.drawing">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
-                <path d="M11.4 2.6l2 2L5.6 12.4l-2.6.6.6-2.6 7.8-7.8z" />
-                <path d="M10.2 3.8l2 2" stroke-linecap="round" />
-              </svg>
-              <i class="dot"></i>
-            </button>
-            <div class="tb-panel" id="panel-drawings"></div>
-          </div>
-          <div class="tb-menu" data-menu="display">
-            <button class="tb-trigger" type="button" title="显示" aria-label="显示" data-i18n-title="tool.display">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
-                <path d="M2.6 4.6h10.8M2.6 11.4h10.8" />
-                <circle cx="6" cy="4.6" r="1.6" fill="var(--panel)" />
-                <circle cx="10.4" cy="11.4" r="1.6" fill="var(--panel)" />
-              </svg>
-              <i class="dot"></i>
-            </button>
-            <div class="tb-panel" id="panel-display"></div>
-          </div>
           <span class="readout" id="readout">-</span>
         </div>
         <div class="chart-body">
@@ -999,6 +949,22 @@
           return `${sign}${value.toFixed(2)}%`;
         }
 
+        /**
+         * 工具条的定制档位（`?toolbar=`）—— **三层定制各跑一条真实路径**，不必另开示例页
+         * （本仓只有一个示例页，见 `AGENTS.md`）：
+         *
+         * - 不写 = 页面自己的完整定制（收藏周期一排 + 五个菜单，其中三张是自定义面板）；
+         * - `simple` = 第 1 层「只减项」；`custom` = 第 2 层「加自己的按钮」；
+         * - `replace` = 第 3 层「整条替换」；`none` = 完全不要（应用自绘）。
+         */
+        static toolbarMode() {
+          const query = String((window.location && window.location.search) || '');
+          for (const mode of ['simple', 'custom', 'replace', 'none']) {
+            if (query.indexOf(`toolbar=${mode}`) >= 0) return mode;
+          }
+          return 'full';
+        }
+
         candles = [];
         stack = null;
         drawing = null;
@@ -1057,7 +1023,6 @@
         favorites = TerminalPage.DEFAULT_FAVORITES.slice();
         customIntervals = {};
         customFormOpen = false;
-        openMenu = null;
         paneKind = 'macd';
         position = null;
         orders = [];
@@ -1065,8 +1030,17 @@
         book = null;
         /** 盘口的聚合精度（0 = 原始档位）；面板头的下拉改它，转手给 `book.setPriceStep`。 */
         bookStep = 0;
-        /** 并存对照用的库工具条（`?toolbar=lib` 才挂）。 */
-        libToolbar = null;
+        /** 顶部工具条实例（库的 `createChartToolbar`；`?toolbar=none` 时为 null）。 */
+        toolbar = null;
+        /**
+         * 自定义面板的内容（名字 → 面板元素）。
+         *
+         * 库里每次**打开**都重新调一次 `menu()`（这样参数框能按当前状态现建），所以这里是
+         * 「最近一次建出来的那张」；面板一关旧的那张就从文档里摘掉（`fillPanels()` 顺手清理）。
+         */
+        panels = {};
+        /** 「预警」演示数据（第 2 层自定义项那种「应用自己的东西」）。 */
+        alerts = [];
         bookData = { asks: [], bids: [] };
         /** 指针位置：`{ pane, x, y }`，`x`/`y` 是**那一块 pane 画布内**的坐标；不在图上时为 null。 */
         pointer = null;
@@ -1943,7 +1917,6 @@
           };
           this.syncChromeBox();
           this.syncDrawBar();
-          this.mountLibraryToolbarIfAsked();
           if (this.chrome.priceLegend) {
             this.chrome.priceLegend.addEventListener('click', (evt) => {
               const item = evt.target && evt.target.closest ? evt.target.closest('[data-series]') : null;
@@ -2035,170 +2008,292 @@
         }
 
         /**
-         * 图表顶部工具条：常显的收藏周期 + 四组下拉。
+         * 图表顶部工具条 = **库里的 `createChartToolbar`** + 页面的业务回调。
          *
-         * 交互约定（对齐主流终端的做法）：
-         * - 同一时刻只开一个下拉；点空白处或按 Esc 收起；
-         * - 选周期 / 选画线工具 / 执行操作后自动收起；指标是**多选**，勾选时保持展开；
-         * - 面板内容是动态渲染的，所以事件一律**委托在容器上**，不逐个绑。
+         * 这条工具条本来是页面自绘的（`.tb-menu` 那一套）。搬进库的理由见 `plans/chart-toolbar.md`：
+         * 它是「图表的一部分」，而每个接入方各画一遍会让图标 / 主题 / 文案 / 状态同步四件事
+         * 必然各不相同。页面这边**只剩业务判断** —— 切周期要重订阅 K 线流、参数改动要重算指标、
+         * 画线动作要动 `drawing` 层；其余全在库里（见 `src/toolbar.ts` 的三层定制）。
+         *
+         * 定制档位由 `?toolbar=` 选（见 `TerminalPage.toolbarMode()`），三层各跑一条真实路径。
+         * **占带**：工具条交给 `stack.setToolbar()`，插在 pane 栈顶部那一条带里 ——
+         * 图表高度里扣掉它，不悬浮在画布上（悬浮会盖住最上面那几根 K 线）。
+         *
+         * 交互约定（与库里的组件一致）：同一时刻只开一个下拉；点空白处或 Esc 收起；
+         * 选周期 / 选画线工具 / 执行操作后自动收起；指标是**多选**，勾选时保持展开。
          */
         bindToolbar() {
-          for (const menu of document.querySelectorAll('.tb-menu')) {
-            const trigger = menu.querySelector('.tb-trigger');
-            trigger.addEventListener('click', (event) => {
-              event.stopPropagation();
-              this.toggleMenu(menu.getAttribute('data-menu'));
-            });
-          }
-          document.getElementById('tb-intervals').addEventListener('click', (event) => {
-            const key = event.target.getAttribute && event.target.getAttribute('data-interval');
-            if (key) this.setIntervalKey(key);
-          });
-          for (const name of ['intervals', 'type', 'indicators', 'drawings', 'display']) {
-            const panel = document.getElementById(`panel-${name}`);
-            panel.addEventListener('click', (event) => {
-              event.stopPropagation();
-              this.onPanelClick(name, event);
-            });
-            // 参数输入：回车 / 失焦生效（用 change 而不是 input —— 每敲一个字符就重建图表太浪费）
-            panel.addEventListener('change', (event) => this.onPanelInput(event));
+          this.loadPrefs();
+          const mode = TerminalPage.toolbarMode();
+          if (mode !== 'none') {
+            const page = this;
+            const host = {
+              interval: () => this.intervalKey,
+              onIntervalChange: (key, ctx) => this.setIntervalKey(key, ctx),
+              chartType: () => this.chartType,
+              onChartTypeChange: (type, ctx) => this.setChartType(type, ctx),
+              indicators: () => this.indicatorList(),
+              onToggleIndicator: (id, next, ctx) => this.setIndicator(id, next, ctx),
+              drawingTool: () => (this.drawing ? this.drawing.mode() : null),
+              onDrawingToolChange: (tool, ctx) => this.setDrawingTool(tool, ctx),
+              displayItems: () => this.displayList(),
+              onToggleDisplay: (id, next, ctx) => this.setDisplay(id, next, ctx),
+              // 图表实例 / 副图栈走**取值器**：工具条只存 host 的引用，读的时候现取，
+              // 于是「以后换了图表实例」也不必回来重建工具条。
+              get chart() {
+                return page.stack ? page.stack.chartOf('price') : null;
+              },
+              get stack() {
+                return page.stack;
+              },
+            };
+            const options = {
+              host,
+              items: this.toolbarItems(),
+              chartTypes: this.chartTypeList(),
+              messages: this.messages,
+              theme: this.terminalTheme,
+            };
+            // 第 3 层：整条替换（内容完全归应用，位置仍由图表的占带给）
+            if (mode === 'replace') options.render = () => this.buildReplacementBar();
+            this.toolbar = ICETradingChart.createChartToolbar(options);
+            if (this.toolbar.element) {
+              this.stack.setToolbar({
+                element: this.toolbar.element,
+                // 每帧的刷新只走工具条自己的「按签名更新」——**不重填面板**，
+                // 否则面板开着时正在输入的参数框会被一帧一次的 innerHTML 冲掉
+                update: () => this.toolbar && this.toolbar.update(),
+              });
+            }
+            // 占带插进去之后画布几何变了：把外壳（抬头 / 价签 / 准星）重新对齐一次
+            this.resize();
           }
           document.getElementById('draw-bar').addEventListener('click', (event) => this.onDrawBarClick(event));
           document.getElementById('ctx-menu').addEventListener('click', (event) => {
             const node = event.target.closest ? event.target.closest('[data-scale]') : null;
             if (node) this.applyPriceScale(node.getAttribute('data-scale'));
           });
-          document.addEventListener('click', () => this.closeMenus());
+          document.addEventListener('click', () => this.closeContextMenu());
           document.addEventListener('keydown', (event) => {
             if (event.key !== 'Escape') return;
-            this.closeMenus();
-            // Esc 也退出画线模式（主流看盘软件里 Esc 就是「取消当前绘制」）
-            if (this.drawing && this.drawing.mode()) {
-              this.drawing.setMode(null);
-              this.renderDrawingPanel();
-              this.setHint('已退出画线模式');
-            }
+            this.closeContextMenu();
+            // Esc 退出画线模式（主流看盘软件里 Esc 就是「取消当前绘制」），走**同一条命令路径**：
+            // 改模式 → 刷新左侧图标条 → 工具条上的状态点跟上。下拉面板的 Esc 由库自己收
+            if (this.drawing && this.drawing.mode()) this.setDrawingTool(null);
           });
-          this.loadPrefs();
-          this.renderToolbar();
         }
 
-        toggleMenu(name) {
-          this.openMenu = this.openMenu === name ? null : name;
-          for (const menu of document.querySelectorAll('.tb-menu')) {
-            menu.classList.toggle('open', menu.getAttribute('data-menu') === this.openMenu);
+        /**
+         * 工具条那一排：**收藏的周期（一键切）+ 五个菜单**，顺序即显示顺序。
+         *
+         * 收藏项是第 2 层的自定义项（`{ id, label, onClick, active }`）：一个收藏一个按钮，
+         * 与内置项同一个数组、同一套渲染 —— 收藏列表变了就重建这一排（`refreshToolbarItems()`）。
+         * 五个菜单里，「类型」用内置项（库知道怎么渲染一个单选列表），其余四张是自定义面板：
+         * 周期（收藏 / 自定义周期）、指标（叠加 + 副图 + 参数）、画线（工具 + 动作）、
+         * 显示（语言 / 主题 / 配色 / 三个开关）—— 它们要放控件，不是简单开关。
+         */
+        toolbarItems() {
+          const mode = TerminalPage.toolbarMode();
+          if (mode === 'simple') {
+            // 第 1 层「只减项」：数组里没有的内置项不显示，顺序也由数组决定
+            return ['intervals', 'type', 'display'];
+          }
+          const items = this.favorites
+            .filter((key) => this.intervalOf(key))
+            .map((key) => ({
+              id: `fav:${key}`,
+              label: key,
+              title: key,
+              active: () => this.intervalKey === key,
+              onClick: (ctx) => this.setIntervalKey(key, ctx),
+            }));
+          items.push(
+            // 周期：按钮上的字跟着状态走（`label` 可以是函数），面板是页面自己的（收藏 + 自定义周期）
+            { id: 'intervals', icon: 'clock', label: () => this.intervalKey, menu: (ctx) => this.panel('intervals', ctx) },
+            // 类型：库的内置项（候选由页面给，见 chartTypeList）
+            'type',
+            {
+              id: 'indicators',
+              icon: 'indicators',
+              active: () => !!(this.indicators.ma || this.indicators.ema || this.indicators.boll),
+              menu: (ctx) => this.panel('indicators', ctx),
+            },
+            {
+              id: 'drawings',
+              icon: 'drawing',
+              active: () => this.drawingActive(),
+              menu: (ctx) => this.panel('drawings', ctx),
+            },
+            {
+              id: 'display',
+              icon: 'display',
+              active: () => this.displayActive(),
+              menu: (ctx) => this.panel('display', ctx),
+            }
+          );
+          if (mode === 'custom') {
+            // 第 2 层「加自己的按钮」：图标可以是内置名，也可以直接给一段 SVG（这里给 SVG）
+            items.splice(2, 0, {
+              id: 'alerts',
+              icon: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M8 2.6A3.4 3.4 0 0 0 4.6 6v2.6L3.4 11h9.2L11.4 8.6V6A3.4 3.4 0 0 0 8 2.6z"/><path d="M6.6 12.6a1.5 1.5 0 0 0 2.8 0" stroke-linecap="round"/></svg>',
+              label: '预警',
+              title: '价格预警（自定义项演示）',
+              active: () => this.alerts.length > 0,
+              menu: (ctx) => this.panel('alerts', ctx),
+            });
+          }
+          return items;
+        }
+
+        /** 图表类型的候选（页面口径：蜡烛 / 空心蜡烛 / 折线 / 面积）。 */
+        chartTypeList() {
+          return [
+            { id: 'candle', label: '蜡烛' },
+            { id: 'hollow', label: '空心蜡烛' },
+            { id: 'line', label: '折线' },
+            { id: 'area', label: '面积' },
+          ];
+        }
+
+        /** 指标清单（内置「指标」项的读法）：主图叠加那三个。 */
+        indicatorList() {
+          return [
+            { id: 'ma', label: `均线 MA(${this.maPeriods.join(',')})`, on: !!this.indicators.ma },
+            { id: 'ema', label: `均线 EMA(${this.emaPeriods.join(',')})`, on: !!this.indicators.ema },
+            { id: 'boll', label: `布林带 BOLL(${this.bollPeriod},2)`, on: !!this.indicators.boll },
+          ];
+        }
+
+        /** 「显示」里的三个开关（内置项的读法）；id 与 `setDisplay()` 一一对应。 */
+        displayList() {
+          return [
+            { id: 'magnet', label: '磁吸最近的开高低收', on: !!this.magnet },
+            { id: 'volumeMa', label: '均量线 MA5 / MA10', on: !!this.volumeMa },
+            { id: 'sessionLines', label: '会话分隔线（跨天）', on: !!this.sessionLines },
+          ];
+        }
+
+        /** 画线按钮上的状态：武装着某个工具，或者图上已经有线。 */
+        drawingActive() {
+          const drawn = this.drawing ? this.drawing.dump().length : 0;
+          return !!((this.drawing && this.drawing.mode()) || drawn);
+        }
+
+        /** 显示按钮上的状态：只要离开了默认值就点亮（默认 = 绿涨红跌 + 三条都开）。 */
+        displayActive() {
+          return this.scheme !== 'greenUp' || this.magnet || !this.volumeMa || !this.sessionLines;
+        }
+
+        /**
+         * 建一张**自定义面板**（库工具条第 2 层的 `menu`）。
+         *
+         * 容器、定位、主题、点空白处与 Esc 收起都由库负责；这里只建**内容** ——
+         * 所以面板内容用的是页面自己的类（`.tb-item` 这些），点行仍走同一个委托处理器。
+         * 库**每次打开**都会重新调一次这里，所以参数框 / 语言列表都能按当前状态现建。
+         */
+        panel(name, ctx) {
+          const box = document.createElement('div');
+          box.className = 'tb-panel-body';
+          box.dataset.panel = name;
+          box.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.onPanelClick(name, event, ctx);
+          });
+          // 参数输入：回车 / 失焦生效（用 change 而不是 input —— 每敲一个字符就重建图表太浪费）
+          box.addEventListener('change', (event) => this.onPanelInput(event));
+          this.panels[name] = box;
+          this.fillPanel(name);
+          return box;
+        }
+
+        /** 重填一张面板的内容（面板开着时改状态用：自定义周期表单、指标参数那一类）。 */
+        fillPanel(name) {
+          const box = this.panels[name];
+          if (!box) return;
+          if (name === 'intervals') box.innerHTML = this.intervalPanelRows();
+          else if (name === 'indicators') box.innerHTML = this.indicatorPanelRows();
+          else if (name === 'drawings') box.innerHTML = this.drawingPanelRows();
+          else if (name === 'display') box.innerHTML = this.displayPanelRows();
+          else if (name === 'alerts') box.innerHTML = this.alertsPanelRows();
+        }
+
+        /**
+         * 所有**还挂在页面上**的面板重填一遍（换语言 / 换主题时用）。
+         *
+         * 库里每次打开都重建容器，所以面板一关，旧的那张就从文档里摘掉了 —— 顺手清掉引用，
+         * 免得这里每帧都在填一堆早就没人看的节点。
+         */
+        fillPanels() {
+          for (const name of Object.keys(this.panels)) {
+            const box = this.panels[name];
+            if (!box.isConnected) {
+              delete this.panels[name];
+              continue;
+            }
+            this.fillPanel(name);
           }
         }
 
-        closeMenus() {
-          this.closeContextMenu();
-          if (!this.openMenu) return;
-          this.openMenu = null;
-          for (const menu of document.querySelectorAll('.tb-menu')) menu.classList.remove('open');
-        }
-
-        onPanelClick(name, event) {
-          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-type],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-theme],[data-lang],[data-custom]') : null;
+        /**
+         * 面板里的一行：**统一在这里收口**。
+         *
+         * 行上的 `data-*` 就是命令名，内置项与自定义面板共用同一套 —— 命令都落到具名方法上
+         * （`setIntervalKey` / `setChartType` / …），于是「工具条显示 5m、图上是 1H」这种
+         * 状态分叉不可能出现：状态只有图表那一份真相，工具条每次 `update()` 现读。
+         */
+        onPanelClick(name, event, ctx) {
+          const target = event.target.closest ? event.target.closest('[data-interval],[data-star],[data-type],[data-ind],[data-pane],[data-tool],[data-action],[data-scheme],[data-display],[data-theme],[data-lang],[data-custom],[data-alert]') : null;
           if (!target) return;
           const read = (key) => target.getAttribute(key);
           const star = read('data-star');
           if (star) return this.toggleFavorite(star);
 
+          const alert = read('data-alert');
+          if (alert) {
+            if (alert === 'add') return this.addAlert();
+            this.alerts = this.alerts.filter((one) => one.id !== read('data-alert-id'));
+            return this.fillPanel('alerts');
+          }
+
           const custom = read('data-custom');
           if (custom === 'open') {
             this.customFormOpen = !this.customFormOpen;
-            return this.renderIntervalPanel();
+            return this.fillPanel('intervals');
           }
-          if (custom === 'add') return this.addCustomInterval();
+          if (custom === 'add') return this.addCustomInterval(ctx);
 
           const interval = read('data-interval');
-          if (interval) return this.setIntervalKey(interval);
+          if (interval) return this.setIntervalKey(interval, ctx);
 
           const chartType = read('data-type');
-          if (chartType) {
-            this.chartType = chartType;
-            this.renderTypePanel();
-            this.closeMenus();
-            // 换渲染类型要把整张图重建一次（系列类型变了），但 x 窗口 / 走位都保留
-            this.invalidate();
-            return this.setHint(`图表类型：${this.chartTypeLabel()}`);
-          }
+          if (chartType) return this.setChartType(chartType, ctx);
 
           const ind = read('data-ind');
-          if (ind) {
-            this.indicators[ind] = !this.indicators[ind];
-            this.renderIndicatorPanel();
-            this.invalidate();
-            return undefined;
-          }
+          if (ind) return this.setIndicator(ind, !this.indicators[ind], ctx);
           const pane = read('data-pane');
-          if (pane) {
-            this.paneKind = pane;
-            this.renderIndicatorPanel();
-            this.stack.refresh({ animate: false, preserveView: true });
-            return undefined;
-          }
+          if (pane) return this.setPaneKind(pane);
           const tool = read('data-tool');
-          if (tool) {
-            const next = this.drawing.mode() === tool ? null : tool;
-            this.drawing.setMode(next);
-            this.renderDrawingPanel();
-            this.closeMenus();
-            return this.setHint(next ? '在图上点一下（趋势线 / 区间点两下）' : '已退出画线模式');
-          }
+          if (tool) return this.setDrawingTool(this.drawing && this.drawing.mode() === tool ? null : tool, ctx);
           const action = read('data-action');
-          if (action) {
-            this.closeMenus();
-            if (action === 'delete') {
-              const selected = this.drawing.selected();
-              if (!selected) return this.setHint('先点一下某条线选中它');
-              this.drawing.remove(selected.id);
-              return this.setHint(`已删除 ${selected.id}`);
-            }
-            if (action === 'clear') {
-              this.drawing.clear();
-              return this.setHint('已清空画线');
-            }
-            return undefined;
-          }
+          if (action) return this.runDrawingAction(action, ctx);
           const scheme = read('data-scheme');
-          if (scheme) {
-            this.scheme = scheme;
-            if (this.book) this.book.setPalette({ upColor: this.upColor, downColor: this.downColor });
-            this.renderDisplayPanel();
-            this.invalidate();
-            return undefined;
-          }
+          if (scheme) return this.setScheme(scheme, ctx);
           const langKey = read('data-lang');
-          if (langKey) return this.setLanguage(langKey);
+          if (langKey) return this.setLanguage(langKey, ctx);
 
           const themeKey = read('data-theme');
-          if (themeKey) return this.setTerminalTheme(themeKey);
+          if (themeKey) return this.setTerminalTheme(themeKey, ctx);
 
           const display = read('data-display');
-          if (display === 'magnet') {
-            this.magnet = !this.magnet;
-            this.renderDisplayPanel();
-            this.chromeSig = '';
-            this.paintAll();
-            this.syncChrome(true);
-            return undefined;
-          }
-          if (display === 'volumeMa') {
-            this.volumeMa = !this.volumeMa;
-            this.renderDisplayPanel();
-            return this.invalidate();
-          }
-          if (display === 'sessionLines') {
-            this.sessionLines = !this.sessionLines;
-            this.renderDisplayPanel();
-            this.syncSessionLines(true);
-            return undefined;
-          }
+          if (display) return this.setDisplay(display, !this.displayOn(display), ctx);
           return undefined;
         }
 
-        setIntervalKey(key) {
+        /**
+         * 切周期：库只发意图（`onIntervalChange`），**重订阅 K 线流由页面做** ——
+         * 库不知道数据从哪来（这是设计稿第 7 节定下的口径：库不碰数据源）。
+         */
+        setIntervalKey(key, ctx) {
           if (!key || key === this.intervalKey || !this.intervalOf(key)) return;
           const previous = this.intervalKey;
           this.intervalKey = key;
@@ -2213,10 +2308,39 @@
             this.feed.subscribe('kline', { symbol: this.symbol, interval: key });
             this.syncFeedHistory();
           }
-          this.closeMenus();
-          this.renderToolbar();
+          if (ctx && ctx.closeMenu) ctx.closeMenu();
           this.invalidate(true);
           this.setHint(`已切到 ${key}`);
+        }
+
+        /** 换图表类型：系列类型变了要把整张图重建一次，但 x 窗口 / 走位都保留。 */
+        setChartType(type, ctx) {
+          if (ctx && ctx.closeMenu) ctx.closeMenu();
+          if (!type || type === this.chartType) return undefined;
+          this.chartType = type;
+          this.renderToolbar();
+          this.invalidate();
+          return this.setHint(`图表类型：${this.chartTypeLabel()}`);
+        }
+
+        /** 指标开关：主图叠加那三个（副图类型走 `setPaneKind`）。 */
+        setIndicator(id, next, ctx) {
+          if (this.indicators[id] === undefined) return undefined;
+          this.indicators[id] = next === undefined ? !this.indicators[id] : !!next;
+          this.invalidate();
+          this.renderToolbar();
+          // 指标是**多选**：勾完不关面板（连着勾几个不用反复点开）—— 这里故意不调 ctx.closeMenu()
+          void ctx;
+          return undefined;
+        }
+
+        /** 副图类型：MACD / RSI（单选）。 */
+        setPaneKind(kind) {
+          if (!kind || kind === this.paneKind) return undefined;
+          this.paneKind = kind;
+          this.stack.refresh({ animate: false, preserveView: true });
+          this.renderToolbar();
+          return undefined;
         }
 
         toggleFavorite(key) {
@@ -2224,7 +2348,8 @@
           if (index >= 0) this.favorites.splice(index, 1);
           else this.favorites.push(key);
           this.savePrefs();
-          this.renderToolbar();
+          // 收藏是一排自定义项：列表变了要重建那一排（库会把开着的那张面板重新挂上）
+          this.refreshToolbarItems();
         }
 
         /**
@@ -2233,8 +2358,11 @@
          * 条数按「类目标签必须唯一」反推并夹到 20~120：盘中周期不超过一天、日线以上不超过一年。
          */
         addCustomInterval() {
-          const type = document.getElementById('tb-custom-type').value;
-          const value = Number(document.getElementById('tb-custom-value').value);
+          const typeNode = document.getElementById('tb-custom-type');
+          const valueNode = document.getElementById('tb-custom-value');
+          if (!typeNode || !valueNode) return undefined;
+          const type = typeNode.value;
+          const value = Number(valueNode.value);
           if (!isFinite(value) || value <= 0 || Math.floor(value) !== value) {
             return this.setHint('自定义周期要填正整数');
           }
@@ -2247,126 +2375,175 @@
           this.customIntervals[key] = { ms, count, group: '自定义', label: `${value} ${type}` };
           this.customFormOpen = false;
           this.savePrefs();
-          this.setIntervalKey(key);
+          this.refreshToolbarItems();
+          this.setIntervalKey(key, ctx);
+          return undefined;
         }
 
+        /**
+         * 工具条按当前状态刷新（**结构不动**：按钮的激活点 / 周期文字 / 面板内容）。
+         *
+         * 页面自己摆完状态后调它（`invalidate()` 里那条链路也会经由 pane 栈的占带刷新到）。
+         */
         renderToolbar() {
-          this.renderIntervalBar();
-          this.renderIntervalPanel();
-          this.renderTypePanel();
-          this.renderIndicatorPanel();
-          this.renderDrawingPanel();
-          this.renderDisplayPanel();
-          this.syncToolbarState();
+          if (this.toolbar) this.toolbar.update();
+          this.fillPanels();
         }
 
-        /** 图表类型（蜡烛 / 空心蜡烛 / 折线 / 面积）。 */
-        renderTypePanel() {
-          this.syncToolbarState();
-          const types = [
-            ['candle', '蜡烛'],
-            ['hollow', '空心蜡烛'],
-            ['line', '折线'],
-            ['area', '面积'],
-          ];
-          document.getElementById('panel-type').innerHTML =
-            '<div class="tb-title">图表类型</div>' +
-            types
-              .map(
-                ([id, label]) =>
-                  `<div class="tb-item ${this.chartType === id ? 'active' : ''}" data-type="${id}"><span class="tb-mark">${this.chartType === id ? '●' : ''}</span>${label}</div>`
-              )
-              .join('');
+        /** 只重建那一排按钮（收藏 / 自定义周期变了才用；库会把正在开着的那张面板重新挂上）。 */
+        refreshToolbarItems() {
+          if (this.toolbar) this.toolbar.setOptions({ items: this.toolbarItems() });
+          this.fillPanels();
         }
 
         /**
-         * 图标按钮上的状态：周期文字 + 三个「有内容」的小圆点。
+         * 第 3 层（整条替换）：一条极简自绘条 —— 三个周期 + 一个指标开关。
          *
-         * 主流看盘软件的顶部工具条是图标，图标本身说不出「现在开着没」——
-         * 所以指标开着、画线武装着（或已经画了东西）、显示改了默认值时各点一个圆点。
+         * 证明「不留死角」：条上画什么完全归应用，但**位置与高度仍由图表的占带给**
+         * （工具条元素的引用交给 `stack.setToolbar()`）。状态不另存一份：`update()` 时从页面现读。
          */
-        /**
-         * **并存对照**：`?toolbar=lib` 时把库里的 `createChartToolbar` 挂到自绘那条下面。
-         *
-         * 这一步的目的不是"上线新工具条"，而是**验证库的 API 够不够表达页面已有的命令**：
-         * 所以这里的宿主回调**不复制任何业务逻辑** —— 读状态从页面读，写意图就点一下页面已有的控件，
-         * 让它们照旧走那条委托处理器。等价性因此是结构性成立的（同一条代码路径），不是"看着一样"。
-         */
-        mountLibraryToolbarIfAsked() {
-          if (location.search.indexOf('toolbar=lib') < 0) return;
-          if (this.libToolbar) return;
-          const host = document.createElement('div');
-          host.id = 'lib-toolbar';
-          const bar = document.getElementById('chart-bar');
-          if (!bar || !bar.parentNode) return;
-          bar.parentNode.insertBefore(host, bar.nextSibling);
-          const clickIfFound = (selector) => {
-            const node = document.querySelector(selector);
-            if (node) node.click();
-          };
-          this.libToolbar = ICETradingChart.createChartToolbar({
-            host: {
-              interval: () => this.intervalKey,
-              onIntervalChange: (next) => clickIfFound('[data-interval="' + next + '"]'),
-              indicators: () => [
-                { id: 'ma', label: '均线', on: !!this.indicators.ma },
-                { id: 'ema', label: 'EMA', on: !!this.indicators.ema },
-                { id: 'boll', label: '布林带', on: !!this.indicators.boll },
-              ],
-              onToggleIndicator: (id) => clickIfFound('.chart-bar [data-ind="' + id + '"]'),
-              drawingTool: () => (this.drawing ? this.drawing.mode() || 'none' : 'none'),
-              onDrawingToolChange: (tool) => clickIfFound('[data-tool="' + tool + '"]'),
-              // 用页面**真实存在**的那几个显示开关（id 与 data-display 取值必须一一对应，
-              // 否则点了是静默无效 —— 这种"接上了但没反应"的坑本仓踩过好几次）
-              displayItems: () => [
-                { id: 'magnet', label: '磁吸开高低收', on: !!this.magnet },
-                { id: 'volumeMa', label: '均量线', on: !!this.volumeMa },
-                { id: 'sessionLines', label: '会话分隔线', on: !!this.sessionLines },
-              ],
-              onToggleDisplay: (id) => clickIfFound('.chart-bar [data-display="' + id + '"]'),
-              chartType: () => this.chartType,
-              onChartTypeChange: (type) => clickIfFound('.chart-bar [data-type="' + type + '"]'),
-              chart: this.stack ? this.stack.chartOf('price') : null,
-              stack: this.stack,
-            },
-            messages: this.messages,
-            theme: this.terminalTheme,
-          });
-          if (this.libToolbar.element) host.appendChild(this.libToolbar.element);
-        }
-
-        syncToolbarState() {
-          // 并存对照期间：库的那条也按同一份状态刷新（它只读状态、不存状态）
-          if (this.libToolbar) this.libToolbar.update();
-          // 用周期**本身**（"5m"），和旁边那排收藏项同一个写法 —— 写成「5 分钟」就重复了
-          const label = document.querySelector('.tb-trigger [data-tb="interval"]');
-          if (label) label.textContent = this.intervalKey;
-          const drawings = this.drawing ? this.drawing.dump() : [];
-          const states = {
-            type: this.chartType !== 'candle',
-            indicators: !!(this.indicators.ma || this.indicators.ema || this.indicators.boll),
-            drawings: !!((this.drawing && this.drawing.mode()) || drawings.length),
-            display: this.scheme !== 'redUp' || this.magnet || !this.volumeMa || !this.sessionLines,
-          };
-          for (const menu of document.querySelectorAll('.tb-menu')) {
-            const name = menu.getAttribute('data-menu');
-            const trigger = menu.querySelector('.tb-trigger');
-            if (trigger && name) trigger.classList.toggle('on', !!states[name]);
+        buildReplacementBar() {
+          const box = document.createElement('div');
+          box.className = 'mini-bar';
+          for (const key of ['1m', '5m', '1H']) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.miniInterval = key;
+            button.textContent = key;
+            box.appendChild(button);
           }
+          const indicator = document.createElement('button');
+          indicator.type = 'button';
+          indicator.dataset.miniIndicator = 'ma';
+          indicator.textContent = 'MA';
+          box.appendChild(indicator);
+          const active = document.createElement('span');
+          active.className = 'mini-hint';
+          active.textContent = '应用自绘 · 位置由图表给';
+          box.appendChild(active);
+          let signature = '';
+          const paint = (ctx) => {
+            const on = !!this.indicators.ma;
+            const next = `${this.intervalKey}|${on ? 1 : 0}`;
+            if (next === signature) return;
+            signature = next;
+            indicator.classList.toggle('on', on);
+            for (const button of Array.from(box.querySelectorAll('[data-mini-interval]'))) {
+              button.classList.toggle('on', button.getAttribute('data-mini-interval') === this.intervalKey);
+            }
+            void ctx;
+          };
+          paint();
+          box.addEventListener('click', (event) => {
+            const node = event.target.closest ? event.target.closest('[data-mini-interval],[data-mini-indicator]') : null;
+            if (!node) return;
+            const key = node.getAttribute('data-mini-interval');
+            if (key) return this.setIntervalKey(key);
+            return this.setIndicator('ma', !this.indicators.ma);
+          });
+          return { element: box, update: (ctx) => paint(ctx) };
         }
 
-        /** 顶部工具条上常显的那一排周期（就是收藏列表）。 */
-        renderIntervalBar() {
-          // 图标按钮上的周期文字与状态点跟着刷新
-          this.syncToolbarState();
-          const bar = document.getElementById('tb-intervals');
-          bar.innerHTML = this.favorites
-            .filter((key) => this.intervalOf(key))
-            .map((key) => `<button type="button" data-interval="${key}" class="${key === this.intervalKey ? 'on' : ''}">${key}</button>`)
-            .join('');
+        /**
+         * 「预警」那张面板（**第 2 层自定义项的演示**）：加一条 / 删一条。
+         *
+         * 演示的是「应用自己的东西放进库的工具条」：状态在页面（`this.alerts`），
+         * 库只管把面板挂到正确的位置、跟着主题与语言走。
+         */
+        alertsPanelRows() {
+          const rows = ['<div class="tb-title">价格预警（演示）</div>'];
+          if (!this.alerts.length) rows.push('<div class="tb-item"><span class="tb-mark"></span>暂无预警</div>');
+          for (const one of this.alerts) {
+            rows.push(
+              `<div class="tb-item" data-alert="drop" data-alert-id="${one.id}"><span class="tb-mark">×</span>${one.text}</div>`
+            );
+          }
+          rows.push('<div class="tb-item" data-alert="add"><span class="tb-mark">＋</span>按当前价加一条</div>');
+          return rows.join('');
         }
 
-        renderIntervalPanel() {
+        /** 加一条预警（演示数据）：按钮上的小圆点跟着亮起来（`active` 那条路径）。 */
+        addAlert() {
+          const text = `${TerminalPage.price(this.price)} 上穿提醒`;
+          this.alerts = this.alerts.concat({ id: `a${this.alerts.length + 1}-${Math.round(this.price)}`, text });
+          this.renderToolbar();
+          this.setHint(`已加一条预警：${text}`);
+        }
+
+        /**
+         * 画线工具切换：选一种再在图上点（再选同一项 = 取消）。
+         *
+         * 工具条只发意图；「当前工具」的真相在 `drawing` 层（`drawing.mode()`），
+         * 所以按钮的激活态是每次 `update()` 现读的，不另存一份。
+         */
+        setDrawingTool(tool, ctx) {
+          const next = tool && this.drawing && this.drawing.mode() === tool ? null : tool;
+          if (this.drawing) this.drawing.setMode(next);
+          if (ctx && ctx.closeMenu) ctx.closeMenu();
+          this.syncDrawBar();
+          this.renderToolbar();
+          this.setHint(next ? '在图上点一下（趋势线 / 区间点两下）' : '已退出画线模式');
+        }
+
+        /** 画线动作：删除选中 / 清空全部（真动作在 drawing 层，页面只是发命令）。 */
+        runDrawingAction(action, ctx) {
+          if (ctx && ctx.closeMenu) ctx.closeMenu();
+          if (action === 'delete') {
+            const selected = this.drawing.selected();
+            if (!selected) return this.setHint('先点一下某条线选中它');
+            this.drawing.remove(selected.id);
+            return this.setHint(`已删除 ${selected.id}`);
+          }
+          if (action === 'clear') {
+            this.drawing.clear();
+            return this.setHint('已清空画线');
+          }
+          return undefined;
+        }
+
+        /** 涨跌配色（红涨绿跌 / 绿涨红跌）：盘口、蜡烛、指标色一起换，色值全取自主题 token。 */
+        setScheme(scheme, ctx) {
+          if (ctx && ctx.closeMenu) ctx.closeMenu();
+          if (!scheme || scheme === this.scheme) return undefined;
+          this.scheme = scheme;
+          if (this.book) this.book.setPalette({ upColor: this.upColor, downColor: this.downColor });
+          this.invalidate();
+          this.renderToolbar();
+          return undefined;
+        }
+
+        /** 「显示」里的开关当前值（id 与 `displayList()` 一一对应 —— 对不上就是静默无效，踩过）。 */
+        displayOn(id) {
+          if (id === 'magnet') return !!this.magnet;
+          if (id === 'volumeMa') return !!this.volumeMa;
+          if (id === 'sessionLines') return !!this.sessionLines;
+          return false;
+        }
+
+        /** 改「显示」里的开关：磁吸只重画外壳，均量线要重建量图，会话线只挪那几条线。 */
+        setDisplay(id, next, ctx) {
+          if (id !== 'magnet' && id !== 'volumeMa' && id !== 'sessionLines') return undefined;
+          const value = next === undefined ? !this.displayOn(id) : !!next;
+          if (id === 'magnet') this.magnet = value;
+          else if (id === 'volumeMa') this.volumeMa = value;
+          else this.sessionLines = value;
+          this.renderToolbar();
+          if (id === 'magnet') {
+            this.chromeSig = '';
+            this.paintAll();
+            this.syncChrome(true);
+          } else if (id === 'volumeMa') {
+            this.invalidate();
+          } else {
+            this.syncSessionLines(true);
+          }
+          // 三个开关都在同一张面板里连着切，所以点完不关面板（同 setIndicator）
+          void ctx;
+          return undefined;
+        }
+
+        /** 周期面板的内容：自定义周期 + 按分组列出全部周期，每行右侧的 ★ 加入 / 移出收藏。 */
+        intervalPanelRows() {
           const all = this.allIntervals();
           const groups = {};
           for (const key of Object.keys(all)) {
@@ -2398,11 +2575,11 @@
               );
             }
           }
-          document.getElementById('panel-intervals').innerHTML = rows.join('');
+          return rows.join('');
         }
 
-        renderIndicatorPanel() {
-          this.syncToolbarState();
+        /** 指标面板的内容：主图叠加（多选）+ 副图（单选）+ 参数输入。 */
+        indicatorPanelRows() {
           const row = (id, label, checked) =>
             `<div class="tb-item ${checked ? 'active' : ''}" data-ind="${id}"><span class="tb-mark">${checked ? '✓' : ''}</span>${label}</div>`;
           const pane = (id, label, checked) =>
@@ -2410,7 +2587,7 @@
           const param = (key, value, label) =>
             `<label class="tb-param">${label}<input type="number" min="2" max="200" step="1" data-param="${key}" value="${value}" /></label>`;
           const macd = this.macdParams;
-          document.getElementById('panel-indicators').innerHTML =
+          return (
             '<div class="tb-title">主图叠加</div>' +
             row('ma', `均线 MA(${this.maPeriods.join(',')})`, this.indicators.ma) +
             row('ema', `均线 EMA(${this.emaPeriods.join(',')})`, this.indicators.ema) +
@@ -2428,16 +2605,16 @@
             param('maSlow', this.maPeriods[1], 'MA2') +
             param('emaFast', this.emaPeriods[0], 'EMA1') +
             param('emaSlow', this.emaPeriods[1], 'EMA2') +
-            param('boll', this.bollPeriod, 'BOLL');
+            param('boll', this.bollPeriod, 'BOLL')
+          );
         }
 
-        renderDrawingPanel() {
-          this.syncToolbarState();
-          this.syncDrawBar();
+        /** 画线面板的内容：四个工具 + 删除 / 清空两个动作。 */
+        drawingPanelRows() {
           const mode = this.drawing ? this.drawing.mode() : null;
           const tool = (id, label) =>
             `<div class="tb-item ${mode === id ? 'active' : ''}" data-tool="${id}"><span class="tb-mark">${mode === id ? '✓' : ''}</span>${label}</div>`;
-          document.getElementById('panel-drawings').innerHTML =
+          return (
             '<div class="tb-title">画线工具（选一种再在图上点）</div>' +
             tool('hline', '水平线') +
             tool('vline', '垂直线') +
@@ -2445,17 +2622,18 @@
             tool('rect', '区间矩形') +
             '<div class="tb-title">操作</div>' +
             '<div class="tb-item" data-action="delete"><span class="tb-mark"></span>删除选中</div>' +
-            '<div class="tb-item" data-action="clear"><span class="tb-mark"></span>清空全部</div>';
+            '<div class="tb-item" data-action="clear"><span class="tb-mark"></span>清空全部</div>'
+          );
         }
 
-        renderDisplayPanel() {
-          this.syncToolbarState();
+        /** 显示面板的内容：语言 / 主题 / 配色（选择型）+ 三个开关（勾选型）。 */
+        displayPanelRows() {
           const scheme = (id, label) =>
             `<div class="tb-item ${this.scheme === id ? 'active' : ''}" data-scheme="${id}"><span class="tb-mark">${this.scheme === id ? '●' : ''}</span>${label}</div>`;
           const toggle = (id, label, on) =>
             `<div class="tb-item ${on ? 'active' : ''}" data-display="${id}"><span class="tb-mark">${on ? '✓' : ''}</span>${label}</div>`;
           const isLight = this.terminalTheme === ICETradingChart.LIGHT_TERMINAL_THEME;
-          document.getElementById('panel-display').innerHTML =
+          return (
             '<div class="tb-title">语言 / Language</div>' +
             `<div class="tb-item ${this.lang === 'zh' ? 'active' : ''}" data-lang="zh"><span class="tb-mark">${this.lang === 'zh' ? '●' : ''}</span>中文</div>` +
             `<div class="tb-item ${this.lang === 'en' ? 'active' : ''}" data-lang="en"><span class="tb-mark">${this.lang === 'en' ? '●' : ''}</span>English</div>` +
@@ -2470,7 +2648,8 @@
             '<div class="tb-title">成交量</div>' +
             toggle('volumeMa', '均量线 MA5 / MA10', this.volumeMa) +
             '<div class="tb-title">时间轴</div>' +
-            toggle('sessionLines', '会话分隔线（跨天）', this.sessionLines);
+            toggle('sessionLines', '会话分隔线（跨天）', this.sessionLines)
+          );
         }
 
         /** 收藏的周期与自定义周期存本地，刷新后还在。 */
@@ -2593,6 +2772,8 @@
           host.addEventListener('pointerdown', (event) => {
             if (event.button !== 0) return;
             if (this.drawing && this.drawing.mode()) return;
+            // 工具条那一条带也在 `#panes` 里（占带），但它不是绘图区：按它不该给平移小手
+            if (event.target && event.target.closest && event.target.closest('.ice-toolbar, .mini-bar')) return;
             if (this.valueAxisAt(event.clientX, event.clientY)) return;
             this.pressed = true;
             this.syncCursor();
@@ -3099,9 +3280,12 @@
          * 换语言：库侧（提示框 / 盘口表头 / 指标序列名）走 `TerminalMessages`，
          * 页面侧（抬头 / 面板 / 表单 / 表格）走 `PAGE_MESSAGES` + `data-i18n`。
          */
-        setLanguage(lang) {
+        setLanguage(lang, ctx) {
+          if (ctx && ctx.closeMenu) ctx.closeMenu();
           this.lang = lang;
           this.messages = ICETradingChart.resolveTerminalMessages(lang);
+          // 工具条上库渲染的文案（周期 / 图表类型 / 指标 / 画线 / 显示）走同一份目录
+          if (this.toolbar) this.toolbar.setOptions({ messages: this.messages });
           this.applyI18n();
           this.readoutSig = '';
           this.invalidate();
@@ -3115,13 +3299,16 @@
          * `theme`，经 ice-chart 的主题桥推到 ice-render 的引擎主题）。涨跌色也取自主题 token，
          * 所以顺手 `invalidate()` 重建一次。
          */
-        setTerminalTheme(key) {
+        setTerminalTheme(key, ctx) {
+          if (ctx && ctx.closeMenu) ctx.closeMenu();
           this.terminalTheme = key === 'light' ? ICETradingChart.LIGHT_TERMINAL_THEME : ICETradingChart.DARK_TERMINAL_THEME;
           ICETradingChart.applyTerminalTheme(this.terminalTheme);
           if (this.book) this.book.setTheme(this.terminalTheme);
           // 图表主题是在建栈那一刻解析的，换肤要显式告诉 pane 栈（它内部重新求值 option 再应用）
           if (this.stack) this.stack.setTheme(ICETradingChart.terminalThemeToChartTheme(this.terminalTheme));
-          this.renderDisplayPanel();
+          // 工具条也吃同一份 token（色值走 `--ice-toolbar-*` 变量，不重建 DOM）
+          if (this.toolbar) this.toolbar.setOptions({ theme: this.terminalTheme });
+          this.renderToolbar();
           this.invalidate();
           this.setHint(key === 'light' ? '盘面：浅色' : '盘面：深色');
         }
@@ -3471,7 +3658,7 @@
           }
           this.paneKey = '';
           this.readoutSig = '';
-          this.renderIndicatorPanel();
+          this.renderToolbar();
           this.invalidate();
         }
 
@@ -3563,21 +3750,10 @@
           const node = event.target.closest ? event.target.closest('[data-tool],[data-action]') : null;
           if (!node) return;
           const tool = node.getAttribute('data-tool');
-          if (tool) {
-            const next = this.drawing.mode() === tool ? null : tool;
-            this.drawing.setMode(next);
-            this.renderDrawingPanel();
-            return this.setHint(next ? '在图上点一下（趋势线 / 区间点两下）' : '已退出画线模式');
-          }
+          // 与工具条上的画线菜单走**同一条命令路径**（同一个方法），两处不会各自跑偏
+          if (tool) return this.setDrawingTool(this.drawing.mode() === tool ? null : tool);
           const action = node.getAttribute('data-action');
-          if (action === 'clear') {
-            this.drawing.clear();
-            return this.setHint('已清空画线');
-          }
-          const selected = this.drawing.selected();
-          if (!selected) return this.setHint('先点一下某条线选中它');
-          this.drawing.remove(selected.id);
-          this.setHint(`已删除 ${selected.id}`);
+          return this.runDrawingAction(action);
         }
 
         /**
@@ -3899,7 +4075,8 @@
         }
 
         renderDrawings() {
-          this.syncToolbarState();
+          // 画线层动了 → 工具条上「画线」那个点跟着亮 / 灭（工具条只读状态，不存状态）
+          this.renderToolbar();
           const list = this.drawing ? this.drawing.dump() : [];
           document.getElementById('d-count').textContent = String(list.length);
           document.getElementById('d-dump').textContent = JSON.stringify(list, null, 1);

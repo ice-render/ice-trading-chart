@@ -15,6 +15,22 @@ import type { Page } from '@playwright/test';
  */
 const PAGE = '/examples/terminal.html';
 
+/**
+ * 库的工具条（`.ice-toolbar`）上打开某一项的面板 / 点里面的一行。
+ *
+ * 工具条本体归库（`src/toolbar.ts`），页面只提供面板**内容** —— 所以选择器是
+ * 「某一项（`data-item`）+ 面板里的某一行」，与内置项同一套 `data-*`。
+ */
+async function openToolbarMenu(page: Page, item: string) {
+  await page.click(`.ice-toolbar [data-item="${item}"] .ice-toolbar-btn`);
+  await page.waitForTimeout(120);
+}
+
+async function pickToolbar(page: Page, item: string, attr: string, value: string) {
+  await openToolbarMenu(page, item);
+  await page.click(`.ice-toolbar [data-item="${item}"] .ice-toolbar-panel [${attr}="${value}"]`);
+}
+
 /** 类目/量程 + 可见窗口里真实 K 的根数。 */
 async function snapshot(page: Page) {
   return page.evaluate(() => {
@@ -741,6 +757,13 @@ test.describe('K 线终端示例页', () => {
     expect(back.panes.price.n).toBe(start.panes.price.n);
 
     // ↑/↓：缩放价格轴（放大 → 窗口变窄，再按回来）
+    //
+    // 先把价格轴顶到**夹取上限**（引擎的数值轴缩放不许超出完整数据域，`maxSpan` 默认 1）：
+    // 不顶住的话，「按回来」是不是能长回原样取决于这次随机演示数据里影线有多长 ——
+    // 那是数据相关的，不该由用例来赌（实测踩到过一次）。
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.waitForTimeout(300);
     const y0 = (await axisDomain(page, 'price', 'y')).map(Number);
     await page.keyboard.press('ArrowUp');
     await page.waitForTimeout(300);
@@ -817,27 +840,40 @@ test.describe('K 线终端示例页', () => {
     expect(state.volumeTop).toBeLessThan(state.indicatorTop);
   });
 
-  test('顶部工具条是图标按钮：悬停提示、点击展开、Esc 收起，收藏周期照旧一键切换', async ({ page }) => {
+  test('顶部工具条（库组件）占带在图上：悬停提示、点击展开、Esc 收起，收藏周期照旧一键切换', async ({ page }) => {
+    const menus = ['intervals', 'type', 'indicators', 'drawings', 'display'];
     const triggers = () =>
-      page.evaluate(() =>
-        Array.from(document.querySelectorAll('.tb-menu .tb-trigger')).map((node) => ({
-          menu: node.closest('.tb-menu')!.getAttribute('data-menu'),
-          title: node.getAttribute('title'),
-          icons: node.querySelectorAll('svg').length,
-          text: (node.textContent || '').trim(),
-          on: node.classList.contains('on'),
-        }))
+      page.evaluate((names) =>
+        Array.from(document.querySelectorAll('.ice-toolbar [data-item]'))
+          .filter((node) => names.indexOf(node.getAttribute('data-item') || '') >= 0)
+          .map((node) => {
+            const button = node.querySelector('.ice-toolbar-btn')!;
+            return {
+              menu: node.getAttribute('data-item'),
+              title: button.getAttribute('title'),
+              icons: button.querySelectorAll('svg').length,
+              text: (button.textContent || '').trim(),
+              on: button.classList.contains('on'),
+            };
+          }),
+        menus
       );
-    const panel = (id: string) => page.evaluate((menu) => getComputedStyle(document.getElementById(`panel-${menu}`)!).display, id);
+    const panel = (id: string) => page.evaluate((item) => !(document.querySelector(`.ice-toolbar [data-item="${item}"] .ice-toolbar-panel`) as HTMLElement).hidden, id);
 
     const start = await triggers();
-    expect(start.map((item) => item.menu)).toEqual(['intervals', 'type', 'indicators', 'drawings', 'display']);
+    expect(start.map((item) => item.menu)).toEqual(menus);
     for (const item of start) {
       expect(item.icons, `${item.menu} 是图标按钮`).toBe(1);
       expect(item.title, `${item.menu} 有悬停提示`).toBeTruthy();
     }
-    // 只有「周期」那一个带文字（周期本身是文字信息），其余三个是纯图标
+    // 五个菜单里只有「周期」带文字（周期本身是文字信息）；收藏那一排是另外几个自定义项
     expect(start.filter((item) => item.text).map((item) => item.text)).toEqual(['5m']);
+    expect(
+      await page.evaluate(() =>
+        Array.from(document.querySelectorAll('.ice-toolbar [data-item^="fav:"]')).map((node) => (node.textContent || '').trim())
+      ),
+      '收藏的周期就是那一排自定义项'
+    ).toEqual(['1m', '5m', '15m', '1H', '4H', '1D']);
     // 按菜单名取，别按下标（列表随时会插新图标）
     const byMenu = (items: Array<{ menu: string | null }>, name: string) => items.find((item) => item.menu === name)!;
     // 指标默认开着 MA → 图标上带状态点；还没武装画线工具 → 不点
@@ -845,31 +881,45 @@ test.describe('K 线终端示例页', () => {
     expect(byMenu(start, 'drawings').on).toBe(false);
     expect(byMenu(start, 'type').on, '默认是蜡烛，不点状态点').toBe(false);
 
-    await page.click('.tb-menu[data-menu="indicators"] .tb-trigger');
-    expect(await panel('indicators'), '点图标展开面板').toBe('block');
+    // 占带：工具条在 pane 栈顶部那一条，画布从它下面开始（不悬浮、不盖住最上面那几根 K 线）
+    const band = await page.evaluate(() => {
+      const host = document.getElementById('panes')!;
+      const bar = host.querySelector('.ice-toolbar') as HTMLElement;
+      const canvas = (window as any).__page.stack.chartOf('price').ice.canvasEl as HTMLCanvasElement;
+      return {
+        first: host.firstElementChild === bar,
+        barBottom: bar.getBoundingClientRect().bottom,
+        canvasTop: canvas.getBoundingClientRect().top,
+      };
+    });
+    expect(band.first, '带占在容器顶部').toBe(true);
+    expect(band.barBottom, '带在画布上方').toBeLessThanOrEqual(band.canvasTop + 1);
+
+    await page.click('.ice-toolbar [data-item="indicators"] .ice-toolbar-btn');
+    expect(await panel('indicators'), '点图标展开面板').toBe(true);
     // 指标是多选：勾一个之后面板保持展开
     const before = await page.evaluate(() => Boolean((window as any).__page.indicators.ema));
-    await page.click('#panel-indicators [data-ind="ema"]');
+    await page.click('.ice-toolbar [data-item="indicators"] .ice-toolbar-panel [data-ind="ema"]');
     await page.waitForTimeout(150);
     expect(await page.evaluate(() => Boolean((window as any).__page.indicators.ema))).toBe(!before);
-    expect(await panel('indicators'), '勾选时保持展开').toBe('block');
+    expect(await panel('indicators'), '勾选时保持展开').toBe(true);
 
     await page.keyboard.press('Escape');
-    expect(await panel('indicators'), 'Esc 收起').toBe('none');
+    expect(await panel('indicators'), 'Esc 收起').toBe(false);
 
     // 画线工具武装起来 → 铅笔图标点状态点，选中项自动收起面板
-    await page.click('.tb-menu[data-menu="drawings"] .tb-trigger');
-    await page.click('#panel-drawings [data-tool="trend"]');
+    await page.click('.ice-toolbar [data-item="drawings"] .ice-toolbar-btn');
+    await page.click('.ice-toolbar [data-item="drawings"] .ice-toolbar-panel [data-tool="trend"]');
     await page.waitForTimeout(150);
     const armed = await triggers();
     expect(byMenu(armed, 'drawings'), '武装画线工具时点状态点').toMatchObject({ on: true });
-    expect(await panel('drawings'), '选工具后自动收起').toBe('none');
+    expect(await panel('drawings'), '选工具后自动收起').toBe(false);
     await page.keyboard.press('Escape');
 
     // 周期：图标按钮上的文字跟着走，收藏项照旧一键切换
-    await page.click('#tb-intervals button[data-interval="15m"]');
+    await page.click('.ice-toolbar [data-item="fav:15m"] .ice-toolbar-btn');
     await page.waitForTimeout(300);
-    expect(await page.evaluate(() => document.querySelector('.tb-trigger [data-tb="interval"]')!.textContent)).toBe('15m');
+    expect(await page.evaluate(() => document.querySelector('.ice-toolbar [data-item="intervals"] .lbl')!.textContent)).toBe('15m');
     expect(await page.evaluate(() => (window as any).__page.intervalKey)).toBe('15m');
   });
 
@@ -897,9 +947,9 @@ test.describe('K 线终端示例页', () => {
     expect(candle.close).toMatch(/[\d,]+\.\d{2}/);
 
     const pick = async (type: string) => {
-      await page.click('.tb-menu[data-menu="type"] .tb-trigger');
+      await page.click('.ice-toolbar [data-item="type"] .ice-toolbar-btn');
       await page.waitForTimeout(120);
-      await page.click(`#panel-type [data-type="${type}"]`);
+      await page.click(`.ice-toolbar [data-item="type"] .ice-toolbar-panel [data-type="${type}"]`);
       await page.waitForTimeout(450);
       return state();
     };
@@ -952,20 +1002,22 @@ test.describe('K 线终端示例页', () => {
   test('指标参数可改：MACD 快线 6 → 副图与图例跟着走', async ({ page }) => {
     await page.click('#btn-toggle');
     await page.waitForTimeout(200);
-    await page.click('.tb-menu[data-menu="indicators"] .tb-trigger');
+    await page.click('.ice-toolbar [data-item="indicators"] .ice-toolbar-btn');
     await page.waitForTimeout(150);
-    const input = page.locator('#panel-indicators [data-param="macdFast"]');
+    const input = page.locator('.ice-toolbar [data-item="indicators"] .ice-toolbar-panel [data-param="macdFast"]');
     await input.fill('6');
     await input.press('Enter');
     await page.waitForTimeout(500);
 
     expect(await page.evaluate(() => (window as any).__page.macdParams.fast)).toBe(6);
-    expect(await page.evaluate(() => document.getElementById('panel-indicators')!.textContent)).toContain('MACD(6,26,9)');
+    expect(
+      await page.evaluate(() => document.querySelector('.ice-toolbar [data-item="indicators"] .ice-toolbar-panel')!.textContent)
+    ).toContain('MACD(6,26,9)');
     expect(
       await page.evaluate(() => document.querySelector('.pane-title[data-pane="indicator"]')!.textContent)
     ).toContain('MACD6 26 9');
     // 慢线必须比快线长：填一个比快线还小的慢线会被抬到 fast + 1
-    const slow = page.locator('#panel-indicators [data-param="macdSlow"]');
+    const slow = page.locator('.ice-toolbar [data-item="indicators"] .ice-toolbar-panel [data-param="macdSlow"]');
     await slow.fill('3');
     await slow.press('Enter');
     await page.waitForTimeout(300);
@@ -1039,8 +1091,7 @@ test.describe('K 线终端示例页', () => {
     await page.mouse.move(at.x, at.y);
     await page.waitForTimeout(200);
 
-    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
-    await page.click('#panel-display [data-display="magnet"]');
+    await pickToolbar(page, 'display', 'data-display', 'magnet');
     // 勾完先把面板收起来：它还开着的时候正好盖在图上，指针移动落不到画布上（实测踩到）
     await page.keyboard.press('Escape');
     await page.mouse.move(at.x, at.y);
@@ -1067,9 +1118,8 @@ test.describe('K 线终端示例页', () => {
     expect(Math.abs(tagTop + 9 - snappedY)).toBeLessThanOrEqual(1);
 
     // 三个开关都能关掉（面板在勾选时保持展开，跟指标那组一个套路）
-    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
-    await page.click('#panel-display [data-display="volumeMa"]');
-    await page.click('#panel-display [data-display="sessionLines"]');
+    await pickToolbar(page, 'display', 'data-display', 'volumeMa');
+    await page.click('.ice-toolbar [data-item="display"] .ice-toolbar-panel [data-display="sessionLines"]');
     await page.waitForTimeout(300);
     expect(await volumeSeries()).not.toContain('v__ma5');
     expect((await session()).length).toBe(0);
@@ -1095,9 +1145,7 @@ test.describe('K 线终端示例页', () => {
     expect(dark.chartBackground, '图表主题也跟着 token（不用自己碰引擎 setTheme）').toBe('#0b0e11');
     expect(dark.bookText).toBeTruthy();
 
-    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
-    await page.waitForTimeout(120);
-    await page.click('#panel-display [data-theme="light"]');
+    await pickToolbar(page, 'display', 'data-theme', 'light');
     await page.waitForTimeout(600);
 
     const light = await state();
@@ -1107,7 +1155,7 @@ test.describe('K 线终端示例页', () => {
     expect(light.cssAccent, '品牌色在两套盘面里保持一致').toBe(dark.cssAccent);
 
     // 换回来
-    await page.click('#panel-display [data-theme="dark"]');
+    await pickToolbar(page, 'display', 'data-theme', 'dark');
     await page.waitForTimeout(600);
     expect((await state()).cssBackground).toBe('#0b0e11');
   });
@@ -1138,9 +1186,7 @@ test.describe('K 线终端示例页', () => {
     expect(zh.drawTitle).toBe('趋势线');
     expect(zh.intervalLabel).toBe('5 分钟');
 
-    await page.click('.tb-menu[data-menu="display"] .tb-trigger');
-    await page.waitForTimeout(120);
-    await page.click('#panel-display [data-lang="en"]');
+    await pickToolbar(page, 'display', 'data-lang', 'en');
     await page.waitForTimeout(600);
 
     const en = await state();
@@ -1155,7 +1201,7 @@ test.describe('K 线终端示例页', () => {
     expect(en.intervalLabel).toBe('5m');
 
     // 换回中文
-    await page.click('#panel-display [data-lang="zh"]');
+    await pickToolbar(page, 'display', 'data-lang', 'zh');
     await page.waitForTimeout(600);
     expect((await state()).bookHead).toEqual(['价格 (USDT)', '数量 (SYN)', '合计 (SYN)']);
     expect((await state()).mark).toBe('标记价格');

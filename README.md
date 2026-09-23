@@ -193,6 +193,41 @@ book.setPalette({ upColor, downColor });                              // 换配�
 - 自带样式（注入一次、id 守卫），页面不用为它写 CSS；
 - 中间价那一行给中间价与价差；`midColor` 由调用方给（组件不知道该跟谁比）。
 
+## 图表工具条（三层定制 + 占带）
+
+周期 / 图表类型 / 指标 / 画线 / 显示那条工具条也在库里（**它是图表的一部分**，每个接入方
+各画一遍会让图标、主题、文案、状态同步四件事各不相同）。**占带**：交给 pane 栈，pane 高度
+从容器高度里扣掉它 —— 不悬浮在画布上（悬浮会盖住最上面那几根 K 线）。
+
+```ts
+const toolbar = createChartToolbar({
+  host: {
+    interval: () => currentInterval,                                  // 读状态
+    onIntervalChange: (next) => restartFeed(next),                     // 发意图（库不碰数据源）
+    indicators: () => [{ id: 'ma', label: 'MA(7,25)', on: true }],
+    onToggleIndicator: (id, on) => setIndicator(id, on),
+  },
+});
+
+const stack = createPaneStack(host, specs, {
+  toolbar: { element: toolbar.element, update: () => toolbar.update() },   // 占带
+});
+stack.refresh();   // 每次 refresh 顺带调一次 update()：图表状态变了，工具条自己跟上
+```
+
+三层定制，按侵入度递增（`items` 的数组顺序就是显示顺序）：
+
+| 层 | 写法 | 给谁用 |
+|---|---|---|
+| 1 · 声明式 | `items: ['intervals', 'type', 'display']` | 只想少放几项 / 换顺序 |
+| 2 · 自定义项 | 同一个数组里混 `{ id, label, icon, onClick(ctx), active(ctx), menu(ctx) }`（`label` 可以是 `(ctx) => string`） | 想加自己的按钮 / 面板 |
+| 3 · 整条替换 | `render: (ctx) => ({ element, update })`，或 `show: false` | 想整条自己画（位置仍由图表的占带给） |
+
+一条铁律：**工具条不自己存图状态**。周期、类型、指标显隐的真相永远是图表 option ——
+内置项只做「发意图 + 读状态」，所以应用外部改了状态，下一次 `update()` 会自己跟上，
+而且**不重建结构**（重建会让使用方手里的节点引用失效）。自定义面板的内容归应用，
+「点完要不要关」也归应用（`ctx.closeMenu()`）：指标多选要连着勾几个，选周期 / 选语言就该关掉。
+
 ## 实时行情（WebSocket）
 
 行情是**一条会断的长连接 + 好几路 topic**。这一层把「重连、订阅记账、按帧合并、快照对账」
@@ -273,7 +308,8 @@ hub.data(hub.keyOf('kline', { symbol: 'BTCUSDT', interval: '1m' })!);   // → C
 | `panTimeAxis(chart, { bars? })` / `zoomTimeAxis(chart, { factor, anchorX? })` | 时间轴的视图控制：整窗平移（正数向右，贴边滑）/ 按倍数缩放（锚点占绘图区宽度的比例固定）。键盘 ←→ / `+`-` 的落点，上下限由引擎兜（`minBarSpacing`） |
 | `formatPrice(value, precision?)` / `formatVolume` / `formatSigned` / `formatPct` | 数字格式化。`formatPrice` 给了 `precision` 就固定小数位、不去尾随 0（报价口径，`DEFAULT_PRICE_PRECISION = 2`） |
 | `CandlestickSeries` / `resolveCandleStyle` / `DEFAULT_UP_COLOR` / `DEFAULT_DOWN_COLOR` | 系列组件与配色 |
-| `createPaneStack(container, specs, options)` | 真副图：多实例 + 联动 + 横向对齐 |
+| `createPaneStack(container, specs, options)` | 真副图：多实例 + 联动 + 横向对齐；`toolbar`（或运行中的 `setToolbar()`）把一条带插进容器顶部 / 底部并**从容器高度里扣掉它**（工具条占带） |
+| `createChartToolbar(options)` | 图表工具条（周期 / 类型 / 指标 / 画线 / 显示）。三层定制：`items` 声明式 → 自定义项 `{ id, label, icon, onClick(ctx), active(ctx), menu(ctx) }` → `render(ctx)` 整条替换；`host` 给「读状态 / 写意图」的正规入口 |
 | `axisTickCount(min, max, length, { spacing?, nice? })` | 按「轴长 ÷ 一档的最小像素」反推数值轴给几档刻度（pane 栈自动注入 `tickCount`，默认 5 档会明显偏稀） |
 | `createOverlaySeries` / `createMacdPaneOption` / `createRsiPaneOption` | 指标 option 构造 |
 | `sma` / `ema` / `stdev` / `bollinger` / `macd` / `rsi` / `macdRange` | 指标纯函数 |
@@ -315,6 +351,10 @@ npm run build && npx http-server . -p 8102 -c-1
 # 打开 http://localhost:8102/examples/terminal.html
 ```
 
+工具条的三层定制用**查询参数**切换（不必为此另开示例页）：
+`?toolbar=simple`（第 1 层：只减项）/ `custom`（第 2 层：加一个「预警」自定义项）/
+`replace`（第 3 层：整条替换，位置仍由图表给）/ `none`（完全不要）。
+
 页面里有什么：
 
 | 区域 | 用到的能力 |
@@ -337,7 +377,7 @@ npm run build && npx http-server . -p 8102 -c-1
 | 指标参数 | 「指标」面板里可直接改 MACD 12/26/9、RSI 14、MA(7,25)、EMA(12,26)、BOLL(20)；改完副图、图例、抬头立刻跟着走 |
 | 左边缘图标条 | 画线工具（趋势线 / 水平线 / 垂直线 / 区间矩形 + 删除选中 / 清空）竖排在图表左边缘，选中态高亮，Esc 退出 |
 | 十字光标 / 成交量 / 时间轴 | 显示面板里三个开关：磁吸最近的开高低收、均量线 MA5/MA10、跨天的会话分隔线 |
-| 图表顶部工具条 | 常显的收藏周期（一键切换）+ **图标按钮**（时钟 = 周期、蜡烛 = 图表类型、柱状 = 指标、铅笔 = 画线、滑杆 = 显示；带悬停提示与「有内容」状态点）打开五组下拉：**周期**（分组列表 / 星标收藏 / 自定义周期）、**指标**（主图叠加多选 + 副图单选）、**画线**、**显示**（涨跌配色 / 阳线空心） |
+| 图表顶部工具条 | **库组件**（`createChartToolbar`，占带在图表顶部）：常显的收藏周期（一键切换）+ **图标按钮**（时钟 = 周期、蜡烛 = 图表类型、柱状 = 指标、铅笔 = 画线、滑杆 = 显示；带悬停提示与「有内容」状态点）打开五组下拉：**周期**（分组列表 / 星标收藏 / 自定义周期）、**指标**（主图叠加多选 + 副图单选 + 参数）、**画线**（工具 + 删除 / 清空）、**显示**（语言 / 盘面 / 涨跌配色 / 三个开关）。三层定制：`items` / 自定义项 / `render` 整条替换 |
 | 图表右侧盘口 | `createOrderBook` 组件（每侧 10 档、深度条、点价填单） |
 | 数值轴刻度密度 | 价格轴默认就有 8~13 档（一档 19~47px），不再是引擎默认的 5 档 / 57~71px；密度按「轴长 ÷ 一档的最小像素」反推，缩放 / 平移 / 手动量程都会跟着重算，三块 pane 各自按自己的轴长给档数 |
 | 报价精度 | 刻度、最新价签、准星价签、抬头 OHLC 四处统一两位小数（`extras.pricePrecision = 2`）：`41800.00` 而不是 `41800`；刻度标签补位预算（`axisLabelChars`）跟着加宽到 9 字符，三块 pane 仍然等宽 |
