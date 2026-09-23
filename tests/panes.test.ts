@@ -234,6 +234,48 @@ describe('createPaneStack（真副图）', () => {
     dynamic.destroy();
   });
 
+  it('工具条占带：带占容器顶部，pane 高度扣掉它（不盖住最上面那几根 K 线）', async () => {
+    const band = document.createElement('div');
+    band.className = 'my-band';
+    // jsdom 不排版：把带的高度钉成 32，等价于浏览器里量到的 offsetHeight
+    Object.defineProperty(band, 'offsetHeight', { get: () => 32 });
+    let updates = 0;
+    const specs = [
+      { id: 'price', primary: true, weight: 3, option: priceOption },
+      { id: 'v', weight: 1, option: priceOption },
+    ];
+    const stack = createPaneStack(host, specs, { height: 600, gap: 10, toolbar: { element: band, update: () => (updates += 1) } });
+    for (const chart of stack.charts) await chart.render();
+    expect(host.firstChild).toBe(band);
+    const holders = Array.from(host.querySelectorAll('[data-pane-id]')) as HTMLElement[];
+    // 可用高度 = 600 − 32（带）− 10（一条分隔线）= 558 → 3:1 → 419 / 140
+    expect(parseFloat(holders[0].style.height)).toBeCloseTo(419, -1);
+    expect(parseFloat(holders[1].style.height)).toBeCloseTo(140, -1);
+    // 图表状态变了（refresh）→ 带上那条跟着刷新
+    stack.refresh();
+    expect(updates).toBeGreaterThan(0);
+    stack.destroy();
+    expect(band.parentNode).toBeNull();
+  });
+
+  it('setToolbar：运行中换上 / 拆掉带，pane 高度跟着重排', async () => {
+    const stack = mount(2, 600);
+    for (const chart of stack.charts) await chart.render();
+    const holders = Array.from(host.querySelectorAll('[data-pane-id]')) as HTMLElement[];
+    // 权重 3:1、gap 10 → 可用 590 → 443 / 148
+    expect(parseFloat(holders[0].style.height)).toBeCloseTo(443, -1);
+    const band = document.createElement('div');
+    Object.defineProperty(band, 'offsetHeight', { get: () => 30 });
+    stack.setToolbar({ element: band, position: 'bottom' });
+    expect(host.lastChild).toBe(band);
+    // 可用 = 600 − 30 − 10 = 560 → 420 / 140
+    expect(parseFloat(holders[0].style.height)).toBeCloseTo(420, -1);
+    stack.setToolbar(null);
+    expect(band.parentNode).toBeNull();
+    expect(parseFloat(holders[0].style.height)).toBeCloseTo(443, -1);
+    stack.destroy();
+  });
+
   it('destroy 之后画布被摘掉、图表被销毁', async () => {
     const stack = mount(2);
     for (const chart of stack.charts) await chart.render();

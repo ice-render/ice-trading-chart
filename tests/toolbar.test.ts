@@ -47,8 +47,91 @@ describe('图表工具条（toolbar）', () => {
     btnOf('alerts').click();
     expect(seen).toHaveLength(1);
     expect(typeof seen[0].refresh).toBe('function');
+    expect(typeof seen[0].closeMenu).toBe('function');
     expect((seen[0].chart as { tag: string }).tag).toBe('chart-instance');
     expect(panelOf('alerts')).toBeNull();
+  });
+
+  it('第 2 层：label 也可以是函数 —— 按钮上的字跟着状态走（周期那种）', () => {
+    let interval = '5m';
+    mount({
+      items: [
+        { id: 'intervals', icon: 'clock', label: () => interval, menu: () => document.createElement('div') },
+        'type',
+      ],
+    });
+    expect(btnOf('intervals').textContent).toContain('5m');
+    expect(btnOf('intervals').title).toBe('5m');
+    interval = '1H';
+    bar!.update();
+    expect(btnOf('intervals').textContent).toContain('1H');
+    // 悬停提示与按钮上的字是同一份真相（不给 title 时跟着走）
+    expect(btnOf('intervals').title).toBe('1H');
+  });
+
+  it('setOptions 换 items（收藏变了）时：开着的那张面板按同一个 id 重新挂上', () => {
+    mount({
+      items: ['intervals', { id: 'fav:1m', label: '1m', onClick: () => undefined }],
+      host: { interval: () => '5m' },
+    });
+    btnOf('intervals').click();
+    expect(panelOf('intervals').hidden).toBe(false);
+    bar!.setOptions({
+      items: [
+        'intervals',
+        { id: 'fav:1m', label: '1m', onClick: () => undefined },
+        { id: 'fav:5m', label: '5m', onClick: () => undefined },
+      ],
+    });
+    expect(panelOf('intervals').hidden).toBe(false);
+  });
+
+  it('面板内的点击不冒泡到 document：连着勾几个指标时面板不关', () => {
+    mount({
+      items: ['indicators'],
+      host: {
+        indicators: () => [
+          { id: 'ma', label: 'MA', on: true },
+          { id: 'ema', label: 'EMA', on: false },
+        ],
+        onToggleIndicator: () => undefined,
+      },
+    });
+    btnOf('indicators').click();
+    const panel = panelOf('indicators');
+    (panel.querySelector('[data-indicator="ema"]') as HTMLElement).click();
+    expect(panel.hidden).toBe(false);
+  });
+
+  it('Esc 收起面板（与「点空白处收起」同一条约定）', () => {
+    mount({ items: ['intervals'], host: { interval: () => '5m' } });
+    btnOf('intervals').click();
+    const panel = panelOf('intervals');
+    expect(panel.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(panel.hidden).toBe(true);
+  });
+
+  it('自定义面板里可以用 ctx.closeMenu() 自己收起（应用知道点完要不要关）', () => {
+    mount({
+      items: [
+        {
+          id: 'lang',
+          label: '语言',
+          menu: (ctx) => {
+            const box = document.createElement('div');
+            box.innerHTML = '<button type="button" class="pick">EN</button>';
+            box.querySelector('.pick')!.addEventListener('click', () => ctx.closeMenu());
+            return box;
+          },
+        },
+      ],
+    });
+    btnOf('lang').click();
+    const panel = panelOf('lang');
+    expect(panel.hidden).toBe(false);
+    (panel.querySelector('.pick') as HTMLElement).click();
+    expect(panel.hidden).toBe(true);
   });
 
   it('铁律：外部状态变了 update() 跟上，且不重建结构', () => {
@@ -136,6 +219,23 @@ describe('图表工具条（toolbar）', () => {
     expect(panel.hidden).toBe(true);
     btnOf('lang').click();
     expect(built).toBe(2);
+  });
+
+  it('主题走 `--ice-toolbar-*` 变量：换肤改变量，不重建 DOM', () => {
+    const toolbar = mount({ items: ['intervals'], theme: { text: '#abcdef', panel2: '#123456' } });
+    const root = host.querySelector('.ice-toolbar') as HTMLElement;
+    expect(root.style.getPropertyValue('--ice-toolbar-text')).toBe('#abcdef');
+    expect(root.style.getPropertyValue('--ice-toolbar-panel')).toBe('#123456');
+    toolbar.setOptions({ theme: { text: '#abcdef', panel2: '#654321' } });
+    expect(root.style.getPropertyValue('--ice-toolbar-panel')).toBe('#654321');
+    expect(host.querySelector('.ice-toolbar')).toBe(root);
+  });
+
+  it('换语言：悬停提示跟着 messages 目录走', () => {
+    const toolbar = mount({ items: ['type'] });
+    expect(btnOf('type').title).toBe('图表类型');
+    toolbar.setOptions({ messages: 'en' });
+    expect(btnOf('type').title).toBe('Chart type');
   });
 
   it('第 3 层：render 整条替换（element / update 都被用上）', () => {

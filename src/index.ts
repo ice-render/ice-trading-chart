@@ -105,6 +105,7 @@ export {
   PANE_FONT_FAMILY,
 } from './panes';
 export type { PaneSpec, PaneStack, PaneStackOptions } from './panes';
+export type { PaneToolbarSlot } from './panes';
 export { createDrawingLayer, DRAWING_KINDS } from './drawing';
 export { createOrderBook } from './orderBook';
 export type { OrderBook, OrderBookData, OrderBookLevel, OrderBookOptions } from './orderBook';

@@ -33,8 +33,13 @@ export type ToolbarItemName = 'intervals' | 'type' | 'indicators' | 'drawings' |
 /** 自定义项：与内置项混在同一个 `items` 数组里。 */
 export interface ToolbarCustomItem {
   id: string;
-  /** 按钮上的文字（与 `icon` 二选一或并存）。 */
-  label?: string;
+  /**
+   * 按钮上的文字（与 `icon` 二选一或并存）。
+   *
+   * 可以给**函数**：需要跟着状态变的按钮走这条（周期按钮上的 `5m` 就是这种）——
+   * 函数在每次 `update()` 时重新求值，所以外部把周期改成 `1H` 之后，按钮上的字自己跟上。
+   */
+  label?: string | ((ctx: ToolbarContext) => string);
   /**
    * 图标：内置名（见 `TOOLBAR_ICONS`）或一段 SVG 字符串。
    * 内置名先查表，查不到就当 SVG 原样注入 —— 这样"用现成图标"和"带自己的图标"是同一个字段。
@@ -130,7 +135,7 @@ const STYLE = `
   display: flex; align-items: center; gap: 2px; padding: 2px 6px;
   font: 11px/1.6 var(--ice-toolbar-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   color: var(--ice-toolbar-muted, rgba(132, 142, 156, 0.9));
-  border-bottom: 1px solid var(--ice-toolbar-line, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--ice-toolbar-line-soft, rgba(255, 255, 255, 0.06));
   user-select: none;
 }
 .ice-toolbar-item { position: relative; display: inline-flex; align-items: center; }
@@ -190,6 +195,22 @@ function iconMarkup(icon?: string): string {
   return TOOLBAR_ICONS[icon] || icon;
 }
 
+/**
+ * 自定义项按钮上的文字：固定串或 `(ctx) => string` 都收。
+ *
+ * 为什么要有函数这一档：内置项的「当前值」（周期的 `5m`）是库自己读 host 得来的，
+ * 而自定义项如果把周期面板整个接过去（收藏 / 自定义周期那种），就同样需要「按钮上的字
+ * 跟着状态走」—— 否则会出现「图上 1H、按钮上 5m」。函数在读的时候求值，天然不会存状态。
+ */
+function customCaption(spec: ToolbarCustomItem, ctx: ToolbarContext): string {
+  const label = spec.label;
+  if (typeof label === 'function') {
+    const text = label(ctx);
+    return text === null || text === undefined ? '' : String(text);
+  }
+  return label || '';
+}
+
 /** 一个内置项的渲染结果：触发器 + 可选面板。 */
 interface BuiltItem {
   id: string;
@@ -240,6 +261,31 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
   let items: BuiltItem[] = [];
   let openPanelId: string | null = null;
   let signature = '';
+  let themeSignature = '';
+
+  /**
+   * 主题 → 根节点上的 `--ice-toolbar-*` 变量（与 `orderBook` 同一套姿势：结构只建一次、
+   * 颜色走变量）。换肤只要重写这几个变量，不必重建 DOM —— 也不必让使用方自己写色值。
+   *
+   * 按签名去重：每帧推数据都会 `update()`，没换主题时一次 DOM 都不写。
+   */
+  const paintTheme = () => {
+    const tokens = theme();
+    const next = `${tokens.text}|${tokens.muted}|${tokens.line}|${tokens.lineSoft}|${tokens.panel2}|${tokens.accent}|${tokens.monoFamily}`;
+    if (next === themeSignature) return;
+    themeSignature = next;
+    const vars: Record<string, string> = {
+      '--ice-toolbar-text': tokens.text,
+      '--ice-toolbar-muted': tokens.muted,
+      '--ice-toolbar-line': tokens.line,
+      '--ice-toolbar-line-soft': tokens.lineSoft,
+      '--ice-toolbar-hover': tokens.panel2,
+      '--ice-toolbar-panel': tokens.panel2,
+      '--ice-toolbar-accent': tokens.accent,
+      '--ice-toolbar-mono': tokens.monoFamily,
+    };
+    for (const key of Object.keys(vars)) root.style.setProperty(key, vars[key]);
+  };
 
   function context(): ToolbarContext {
     return {
@@ -248,6 +294,7 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
       messages: messages(),
       theme: theme(),
       refresh: () => refreshImpl(),
+      closeMenu: () => closePanels(),
     };
   }
 
@@ -352,8 +399,12 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
 
   /** 建按钮（**只在 `items` 变化时**调一次）。 */
   const build = () => {
+    // 重建之前先记下开着的是哪一张：应用改 items（例如收藏的周期变了）时，
+    // 用户手里开着的那张面板不该凭空消失 —— 下面按同一个 id 重新挂上。
+    const wasOpen = openPanelId;
     itemsHost.innerHTML = '';
     items = [];
+    openPanelId = null;
     const list: ToolbarItemSpec[] = opts.items && opts.items.length ? opts.items : DEFAULT_ITEMS;
     for (const spec of list) {
       const custom = typeof spec === 'object' && spec ? (spec as ToolbarCustomItem) : null;
@@ -368,11 +419,11 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
       // 内置项都带下拉面板；自定义项给了 `menu` 也带（容器/定位/关闭时机由库统一负责）
       const isMenu = !custom || !!custom.menu;
       const svg = custom ? custom.icon : iconMarkup(iconOf(id));
-      const label = custom ? custom.label || '' : captionOf(id);
+      const label = custom ? customCaption(custom, context()) : captionOf(id);
       button.innerHTML =
         (svg ? `<span class="ico">${iconMarkup(svg)}</span>` : '') +
         (label ? `<span class="lbl">${label}</span>` : '');
-      button.title = custom ? custom.title || custom.label || id : labelOf(id);
+      button.title = custom ? custom.title || label || id : labelOf(id);
       button.setAttribute('aria-label', button.title);
       if (isMenu) {
         const panel = document.createElement('div');
@@ -402,6 +453,9 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
       });
       if (built.panel) {
         built.panel.addEventListener('click', (evt) => {
+          // 面板内的点击**不冒泡到 document**：文档那层监听是「点空白处收起」，
+          // 不拦住的话勾一个指标就把面板关了（多选要能连着勾几个）。
+          evt.stopPropagation();
           const target = evt.target as HTMLElement;
           const pick = (attr: string) => {
             const node = target.closest ? (target.closest(`[${attr}]`) as HTMLElement | null) : null;
@@ -452,15 +506,45 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
       itemsHost.appendChild(root_);
       items.push(built);
     }
+    if (wasOpen) {
+      const again = items.find((item) => item.id === wasOpen && item.panel);
+      if (again) {
+        const custom = typeof again.spec === 'object' ? (again.spec as ToolbarCustomItem) : null;
+        if (custom && custom.menu) {
+          const content = custom.menu(context());
+          again.panel!.innerHTML = '';
+          if (content) again.panel!.appendChild(content);
+        } else {
+          fillPanel(again);
+        }
+        togglePanel(wasOpen, true);
+      }
+    }
   };
 
   /** 按签名刷新（**不重建**）：周期文字、激活态、角标。 */
   const refresh = () => {
+    paintTheme();
+    const ctx = context();
+    const captionOfItem = (item: BuiltItem) => {
+      const custom = typeof item.spec === 'object' ? (item.spec as ToolbarCustomItem) : null;
+      return custom ? customCaption(custom, ctx) : captionOf(item.id);
+    };
+    /**
+     * 悬停提示也是**文字**：换语言时它得跟着变（内置项的文字来自 `messages`）。
+     * 自定义项没显式给 `title` 时用当前文字，给了就用它自己的。
+     */
+    const titleOfItem = (item: BuiltItem, caption: string) => {
+      const custom = typeof item.spec === 'object' ? (item.spec as ToolbarCustomItem) : null;
+      if (!custom) return labelOf(item.id);
+      return custom.title || caption || custom.id;
+    };
     const next = items
       .map((item) => {
         const custom = typeof item.spec === 'object' ? (item.spec as ToolbarCustomItem) : null;
-        const active = custom && custom.active ? custom.active(context()) : false;
-        return `${item.id}:${active ? 1 : 0}:${captionOf(item.id)}`;
+        const active = custom && custom.active ? custom.active(ctx) : false;
+        const caption = captionOfItem(item);
+        return `${item.id}:${active ? 1 : 0}:${caption}:${titleOfItem(item, caption)}`;
       })
       .join('|');
     const changed = next !== signature;
@@ -468,16 +552,35 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
     if (!changed) return;
     for (const item of items) {
       const custom = typeof item.spec === 'object' ? (item.spec as ToolbarCustomItem) : null;
-      const active = custom && custom.active ? custom.active(context()) : false;
+      const active = custom && custom.active ? custom.active(ctx) : false;
       item.button.classList.toggle('on', !!active);
-      const label = custom ? custom.label || '' : captionOf(item.id);
+      const label = captionOfItem(item);
+      const title = titleOfItem(item, label);
       const node = item.button.querySelector('.lbl');
       if (node) node.textContent = label;
+      else if (label) {
+        // 一开始没有文字（例如还没读到周期）、后来有了：补一个 `.lbl`，不重建整个按钮
+        const span = document.createElement('span');
+        span.className = 'lbl';
+        span.textContent = label;
+        item.button.appendChild(span);
+      }
+      if (item.button.title !== title) {
+        item.button.title = title;
+        item.button.setAttribute('aria-label', item.button.title);
+      }
     }
   };
 
   const onDocClick = () => closePanels();
-  if (typeof document !== 'undefined') document.addEventListener('click', onDocClick);
+  /** Esc 收起（与「点空白处收起」同一条约定，见 `plans/chart-toolbar.md`）。 */
+  const onDocKey = (evt: KeyboardEvent) => {
+    if (evt.key === 'Escape') closePanels();
+  };
+  if (typeof document !== 'undefined') {
+    document.addEventListener('click', onDocClick);
+    document.addEventListener('keydown', onDocKey);
+  }
 
   refreshImpl = refresh;
   build();
@@ -494,7 +597,10 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
       refresh();
     },
     destroy: () => {
-      if (typeof document !== 'undefined') document.removeEventListener('click', onDocClick);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('click', onDocClick);
+        document.removeEventListener('keydown', onDocKey);
+      }
       if (root.parentNode) root.parentNode.removeChild(root);
     },
   };
@@ -508,4 +614,11 @@ export interface ToolbarContext {
   theme: TerminalTheme;
   /** 状态变了让工具条按签名刷新（自定义项改完自己调一次）。 */
   refresh: () => void;
+  /**
+   * 收起当前面板（自定义项执行完动作后调它）。
+   *
+   * 内置项的动作由库自己收起（选周期 / 选画线工具 / 执行操作），而自定义面板的内容归应用 ——
+   * 「点完要不要关」只有应用知道（指标多选要连着勾几个，选语言就该关掉），所以给一个显式的口子。
+   */
+  closeMenu: () => void;
 }

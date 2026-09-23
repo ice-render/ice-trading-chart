@@ -85,6 +85,26 @@ export interface PaneStackOptions {
   link?: boolean;
   /** 设备像素比，默认取 `window.devicePixelRatio`（上限 3）。各 pane 用同一个值。 */
   dpr?: number;
+  /**
+   * **工具条占带**：把一条带（通常是 `createChartToolbar()` 的 `element`）放进 pane 栈容器，
+   * 成为容器顶部（或底部）的**独立一条**，pane 的高度从容器高度里**扣掉它**。
+   *
+   * 为什么不悬浮：悬浮的那条带会盖住最上面那几根 K 线（用户看盘时最常看的就是那几根）。
+   * 占带之后图表高度自动让位，指针的命中、光标、画线全都还是原来的几何。
+   *
+   * 给了带之后，`refresh()` 会顺手调一次 `update()` —— 图表状态（周期 / 指标 / 画线）变了，
+   * 工具条跟着刷新，应用不必在每条改状态的路径上都记得调它。
+   */
+  toolbar?: PaneToolbarSlot;
+}
+
+/** 工具条占带：一个元素 +（可选）状态变化的刷新回调。 */
+export interface PaneToolbarSlot {
+  element: HTMLElement;
+  /** 图表状态变化时调用（工具条按签名刷新，不重建结构）。 */
+  update?: () => void;
+  /** 放容器顶部（默认）还是底部。 */
+  position?: 'top' | 'bottom';
 }
 
 export interface PaneStack {
@@ -112,6 +132,13 @@ export interface PaneStack {
   refresh(applyOptions?: { animate?: boolean | 'enter' | 'update'; preserveView?: boolean }): void;
   /** 单独换某一格的 option（同样会重新注入对齐信息）。 */
   setPaneOption(id: string, option: ChartOption | TradingChartOption): void;
+  /**
+   * 换上 / 换掉 / 换位置工具条占带（给 `null` 就是拆掉）。
+   *
+   * 运行中也能换：拆旧带 → 放新带 → 按新高度重排 pane。应用因此可以先建 pane 栈、
+   * 再建工具条（工具条的 `ctx.chart` 那时才拿得到），然后把带交回来。
+   */
+  setToolbar(slot: PaneToolbarSlot | null): void;
   /** 把每个 pane 的 x 窗口对齐到同一段（数据变化后调用）。 */
   syncDomains(): void;
   destroy(): void;
@@ -272,6 +299,25 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
   registerTradingSeries();
   host.style.position = host.style.position || 'relative';
 
+  // ---- 工具条占带：容器顶部（或底部）的独立一条，pane 高度从容器高度里扣掉它
+  let band: HTMLElement | null = null;
+  let bandUpdate: (() => void) | null = null;
+
+  /** 换带：只做 DOM 事（摘旧的、放新的），重排交给 `resize()`。 */
+  const placeBand = (slot: PaneToolbarSlot | null | undefined) => {
+    if (band && band.parentNode) band.parentNode.removeChild(band);
+    band = null;
+    bandUpdate = null;
+    if (!slot || !slot.element) return;
+    band = slot.element;
+    bandUpdate = slot.update || null;
+    band.style.flex = '0 0 auto';
+    if (slot.position === 'bottom') host.appendChild(band);
+    else host.insertBefore(band, host.firstChild);
+  };
+
+  const bandHeight = () => (band ? Math.round(band.offsetHeight) : 0);
+
   /**
    * 某一格**绘图区**的高度（px）：只有建好图之后才量得到，所以首帧传 0 ——
    * 首帧用引擎默认档数，紧接着 `applyPane` 再用量到的真实高度补一次（见下面的创建循环）。
@@ -321,8 +367,12 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
   };
 
   const totalWeight = specs.reduce((sum, spec) => sum + Math.max(0.0001, spec.weight === undefined ? 1 : spec.weight), 0);
-  const outerHeight = options.height || host.clientHeight || 0;
-  const usable = Math.max(specs.length * 56, outerHeight - gap * Math.max(0, specs.length - 1));
+  // 带要在量高度**之前**放进去：它自己占的那几十像素要从容器高度里扣出来
+  placeBand(options.toolbar);
+  /** 可用的 pane 总高 = 容器高度 − 工具条占带 − 分隔线（每块至少 56px）。 */
+  const usableFrom = (height: number) =>
+    Math.max(specs.length * 56, height - bandHeight() - gap * Math.max(0, specs.length - 1));
+  const usable = usableFrom(options.height || host.clientHeight || 0);
 
   specs.forEach((spec, index) => {
     const weight = Math.max(0.0001, spec.weight === undefined ? 1 : spec.weight);
@@ -382,16 +432,45 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
   const refresh = (applyOptions?: { animate?: boolean | 'enter' | 'update'; preserveView?: boolean }) => {
     for (const entry of created) applyPane(entry, applyOptions);
     syncDomains();
+    // 图表状态变了，占带上的那条也顺手刷新（它按签名去重，没变时一次 DOM 都不写）
+    if (bandUpdate) bandUpdate();
+  };
+
+  /** 按「容器高度 − 工具条占带 − 分隔线」给每块 pane 定高，并把画布尺寸同步过去。 */
+  const layoutPanes = () => {
+    const nextUsable = usableFrom(options.height || host.clientHeight || 0);
+    for (const entry of created) {
+      const weight = Math.max(0.0001, entry.spec.weight === undefined ? 1 : entry.spec.weight);
+      const minHeight = entry.spec.minHeight === undefined ? 56 : entry.spec.minHeight;
+      const paneHeight = Math.max(minHeight, Math.round((nextUsable * weight) / totalWeight));
+      entry.holder.style.height = `${paneHeight}px`;
+      const width = Math.max(240, Math.round(entry.holder.clientWidth));
+      entry.chart.resize(width, paneHeight);
+    }
   };
 
   /** 换主题：重新解析 token，再按新主题把三块 pane 重新求值 + 应用一遍。 */
   const setTheme = (next: PaneStackOptions['theme']) => {
     theme = baseTheme(next);
     tickSpacing = 2.5 * (Number(theme.fontSize) > 0 ? Number(theme.fontSize) : 12);
+    // 主题字号变了，占带那条的高度也可能变（文字换行）—— 先重排高度再重新求值
+    layoutPanes();
     for (const entry of created) {
       applyPane(entry);
     }
     syncDomains();
+  };
+
+  /**
+   * 换工具条占带：拆旧的 → 放新的 → 按新高度重排，**并把每格的 option 重新求值一次**。
+   *
+   * 为什么必须重求值：数值轴的档数是按「绘图区高度 ÷ 一档的最小像素」反推的（`alignAxes`）。
+   * 只重排尺寸不重算的话，档数还按**带插进来之前**那块更高的绘图区算 —— 一档当场挤到 17px
+   * 那种（实测：刻度密度用例当场红）。
+   */
+  const setToolbar = (slot: PaneToolbarSlot | null) => {
+    placeBand(slot);
+    resize();
   };
 
   const setPaneOption = (id: string, option: ChartOption | TradingChartOption) => {
@@ -411,16 +490,7 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
    * 价格轴只剩 4 档）。容器尺寸变化时同理。
    */
   const resize = () => {
-    const height = options.height || host.clientHeight || 0;
-    const nextUsable = Math.max(specs.length * 56, height - gap * Math.max(0, specs.length - 1));
-    for (const entry of created) {
-      const weight = Math.max(0.0001, entry.spec.weight === undefined ? 1 : entry.spec.weight);
-      const minHeight = entry.spec.minHeight === undefined ? 56 : entry.spec.minHeight;
-      const paneHeight = Math.max(minHeight, Math.round((nextUsable * weight) / totalWeight));
-      entry.holder.style.height = `${paneHeight}px`;
-      const width = Math.max(240, Math.round(entry.holder.clientWidth));
-      entry.chart.resize(width, paneHeight);
-    }
+    layoutPanes();
     for (const entry of created) {
       if (plotHeightOf(entry) > 0) applyPane(entry);
     }
@@ -434,6 +504,10 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     for (const node of Array.from(host.querySelectorAll('[data-pane-separator]'))) {
       if (node.parentNode) node.parentNode.removeChild(node);
     }
+    // 占带是栈自己插进去的，destroy 时一并摘掉（工具条实例本身归应用，不在这里 destroy）
+    if (band && band.parentNode) band.parentNode.removeChild(band);
+    band = null;
+    bandUpdate = null;
     created.length = 0;
   };
 
@@ -453,6 +527,7 @@ export function createPaneStack(container: HTMLElement, specs: PaneSpec[], optio
     refresh,
     setTheme,
     setPaneOption,
+    setToolbar,
     syncDomains,
     destroy,
     link: handle,
