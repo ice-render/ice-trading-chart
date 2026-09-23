@@ -105,15 +105,22 @@ ice-chart 的系列注册表（`src/register.ts`，幂等）。因此：
   ① 环形形态下 `series.data` 会从 option 里摘掉（原始数据归存储所有）→
      价格轴量程要由应用给：`createTradingChart(target, option, { priceRange })`，
      运行中调整用公开的 `setDomain('y', [min, max])`；
-  ② 每 tick 的成本 = **数据路径（0.1ms 级，O(1)）+ 图表流水线**。后者与「数据怎么存」无关。
-     **上游已在 ice-chart 0.30.2 收掉这条**（施工图与验收在它的 `plans/incremental-pipeline.md`，
-     尺子是 `ice-chart` 的 `scripts/measure-pipeline.mjs`，可 `--url` 指向本仓的
-     `examples/streaming-candles.html`）：10 万根窗口 **15.0ms → 1.6ms/tick**、1 万根 **1.4 → 0.4ms**。
-     本仓这边**不需要再改代码** —— `candleColumnsFor` 的增量路径（环滑动按 `copyWithin` 平移 +
-     只解析新进来的那几根，类目索引存相对偏移）在 0.3.1 就已经接好了，
-     当时缺的正是「上游不再每帧整条重跑」这个前提。剩下的地板在**同一帧内多次
-     `setData` / `appendData` 合并**（上游施工图的 P4）与组件同步的差异更新（P2）。
-  实测见 `examples/streaming-candles.html`（窗口 1 万根，页内自带环形 / 全量 setOption 的 A/B）。
+  ② 每 tick 的成本分两段，**2026-09-23 在真实示例页上终测过**（`examples/streaming-candles.html?window=N`，
+     页内自带计时：`#stat-tick` = `appendData`、`#stat-view` = `setDomainFromFractions` 那一趟）：
+
+     | 窗口 | 数据路径 `appendData` | 视窗推进（流水线） |
+     |---|---|---|
+     | 1 万根 | 0.5 ms | 0.6 ms |
+     | 5 万根 | 0.9 ms | 0.1 ms |
+     | 10 万根 | **1.8 ms** | 0.2 ms |
+
+     ⚠️ **更正**：这里原来写的是「数据路径 0.1ms 级、O(1)」—— 那是 `ice-chart` 尺子量**探针系列**
+     的数，在真实 K 线（`candleColumnsFor` 的增量维护 + 惰性原始点的类目淘汰）上不成立：
+     它**随窗口增长**，10 万根时 1.8ms，比流水线大一个量级。
+     **流水线那条线已经收尾**（0.1~0.6ms，见上游 `plans/incremental-pipeline.md` 第 0/1/2 期）；
+     要再往下压，目标已经换成**数据路径**（`appendData` 在 10 万根上的 1.8ms）。
+
+实测见 `examples/streaming-candles.html`（窗口 1 万根，页内自带环形 / 全量 setOption 的 A/B）。
 
 **上游瓶颈已修（ice-chart 0.29.1）**：`Axis.tickEntries()` 原来为**每一个类目**调
 `scale.map()` + `formatTick()`，而类目轴的 `map` 内部是线性查类目 —— 10 万个类目时 `axisX`
