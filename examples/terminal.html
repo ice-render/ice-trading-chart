@@ -208,6 +208,11 @@
       .pane-title .val { color: var(--dim); }
       .pane-title .up { color: var(--up); }
       .pane-title .down { color: var(--down); }
+      /* 主图叠加的图例行（币安那种 `MA(7) 731.98 MA(25) …`）：可点，点了切换该线显隐 */
+      .pane-title.legend { gap: 12px; pointer-events: auto; }
+      .pane-title.legend .item { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+      .pane-title.legend .item.off { opacity: 0.35; }
+      .pane-title.legend .swatch { width: 8px; height: 2px; border-radius: 1px; display: inline-block; }
       .hline { height: 0; border-top: 1px dashed var(--ruler); }
       .vline { width: 0; border-left: 1px dashed var(--ruler); }
       .lastline { height: 0; border-top: 1px dashed var(--accent); }
@@ -1831,6 +1836,7 @@
             '<div class="session-layer"></div>' +
             '<div class="pane-title" data-pane="volume"></div>' +
             '<div class="pane-title" data-pane="indicator"></div>' +
+            '<div class="pane-title legend" data-pane="price"></div>' +
             '<div class="watermark">SYN/USDT</div>' +
             '<div class="hline"></div>' +
             '<div class="vline"></div>' +
@@ -1849,6 +1855,7 @@
             ohlc: layer.querySelector('.ohlc'),
             volumeTitle: layer.querySelector('.pane-title[data-pane="volume"]'),
             indicatorTitle: layer.querySelector('.pane-title[data-pane="indicator"]'),
+            priceLegend: layer.querySelector('.pane-title[data-pane="price"]'),
             watermark: layer.querySelector('.watermark'),
             sessionLayer: layer.querySelector('.session-layer'),
             hline: layer.querySelector('.hline'),
@@ -1860,6 +1867,14 @@
           };
           this.syncChromeBox();
           this.syncDrawBar();
+          if (this.chrome.priceLegend) {
+            this.chrome.priceLegend.addEventListener('click', (evt) => {
+              const item = evt.target && evt.target.closest ? evt.target.closest('[data-series]') : null;
+              if (!item) return;
+              const chart = this.stack ? this.stack.chartOf('price') : null;
+              if (chart) chart.toggleSeries(item.getAttribute('data-series'));
+            });
+          }
         }
 
         /**
@@ -1900,6 +1915,12 @@
           if (pricePlot && this.chrome.watermark) {
             this.chrome.watermark.style.left = `${pricePlot.x + pricePlot.width / 2}px`;
             this.chrome.watermark.style.top = `${pricePlot.y + pricePlot.height / 2}px`;
+          }
+          // 主图的叠加图例行：贴在 OHLC 抬头下面一行（币安的排法是同一个位置）
+          if (pricePlot && this.chrome.priceLegend) {
+            this.chrome.priceLegend.style.display = 'flex';
+            this.chrome.priceLegend.style.left = `${pricePlot.x + 8}px`;
+            this.chrome.priceLegend.style.top = `${pricePlot.y + 20}px`;
           }
           for (const id of ['volume', 'indicator']) {
             const node = id === 'volume' ? this.chrome.volumeTitle : this.chrome.indicatorTitle;
@@ -3786,10 +3807,57 @@
         }
 
         /**
+         * **主图叠加的图例行**（币安那张图上是 `MA(7) 731.98  MA(25) 718.99 …` 的样式）：
+         * 名称 + 当前值 + 色块；点一下切换该条线的显隐（走 `chart.toggleSeries`）。
+         *
+         * 两个要点：
+         * ① 值**不重算**——直接读图表 option 里那几条线（与画出来的是同一份 `data`），
+         *    取 `reading.index` 那一项；下标对不上（x 不相等）时退到最后一个有效值，
+         *    这样光标停在哪根就报哪根的值，和币安的手感一致；
+         * ② 显隐状态读 `chart.norm.series[].hidden`（归一化后的真相），不自己另存一份。
+         */
+        renderPriceLegend(reading) {
+          const node = this.chrome.priceLegend;
+          if (!node) return;
+          const chart = this.stack ? this.stack.chartOf('price') : null;
+          const all = (chart && chart.option && chart.option.series) || [];
+          const lines = all.slice(1); // 第一条是 K 线本身，其余才是叠加线
+          if (!lines.length) {
+            if (node.innerHTML) node.innerHTML = '';
+            return;
+          }
+          const valueAt = (series) => {
+            const rows = series.data || [];
+            const hit = rows[reading.index];
+            if (hit && hit.x === reading.xValue && typeof hit.y === 'number' && isFinite(hit.y)) return hit.y;
+            for (let i = rows.length - 1; i >= 0; i--) {
+              const y = rows[i] && rows[i].y;
+              if (typeof y === 'number' && isFinite(y)) return y;
+            }
+            return null;
+          };
+          const norm = chart && chart.norm ? chart.norm.series : [];
+          node.innerHTML = lines
+            .map((series) => {
+              const hidden = norm.some((item) => item.id === series.id && item.hidden);
+              const value = valueAt(series);
+              return (
+                `<span class="item${hidden ? ' off' : ''}" data-series="${series.id}">` +
+                `<i class="swatch" style="background:${series.color || '#94a3b8'}"></i>` +
+                `<span class="name">${series.name || series.id}</span>` +
+                `<span class="val">${value === null ? '-' : TerminalPage.round2(value)}</span>` +
+                '</span>'
+              );
+            })
+            .join('');
+        }
+
+        /**
          * 两块副图左上角的图例行（主流看盘软件每块 pane 都有一行）：
          * 成交量写当前量、副图写指标名 + 参数 + 当前值，值随涨跌上色。
          */
         renderPaneTitles(reading, tone) {
+          this.renderPriceLegend(reading);
           const volume = this.chrome.volumeTitle;
           if (volume) {
             const text = reading.volume === null ? '-' : ICETradingChart.formatVolume(reading.volume);
