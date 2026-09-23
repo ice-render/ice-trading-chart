@@ -244,6 +244,17 @@
         padding: 2px 0 3px; border-bottom: 2px solid transparent;
       }
       .trades-head button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+      /* 盘口面板头的小工具：三态视图 + 聚合精度（与下面「最新成交」那两个页签同一套观感） */
+      .book-tools { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; }
+      .book-tools button {
+        background: none; border: 0; color: var(--muted); font: inherit; font-size: 10px; cursor: pointer;
+        padding: 1px 0 2px; border-bottom: 1px solid transparent;
+      }
+      .book-tools button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+      .book-tools select {
+        background: transparent; color: var(--muted); font: inherit; font-size: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 3px; padding: 0 2px;
+      }
       .trades { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 10px 6px; }
       .trades table { width: 100%; border-collapse: collapse; }
       .trades th { color: var(--muted); font: 11px/1.6 var(--mono); font-weight: 400; text-align: right; padding: 2px 0; }
@@ -475,7 +486,21 @@
 
       <!-- ② 订单簿 + 最新成交 -->
       <section class="panel book-col">
-        <div class="panel-head"><span data-i18n="book.title">订单簿</span> <span class="right" id="b-levels">10 档</span></div>
+        <div class="panel-head">
+          <span data-i18n="book.title">订单簿</span>
+          <span class="book-tools">
+            <button type="button" class="on" data-book-view="both" data-i18n="book.both">双向</button>
+            <button type="button" data-book-view="bids" data-i18n="book.bids">仅买</button>
+            <button type="button" data-book-view="asks" data-i18n="book.asks">仅卖</button>
+            <select id="b-step" data-i18n-title="book.step">
+              <option value="0" data-i18n="book.stepRaw">原始</option>
+              <option value="1">1</option>
+              <option value="10">10</option>
+              <option value="100">100</option>
+            </select>
+          </span>
+          <span class="right" id="b-levels">10 档</span>
+        </div>
         <!-- 盘口由库里的 createOrderBook 组件渲染（结构 / 样式 / 深度条 / 点击都在组件里） -->
         <div id="order-book"></div>
         <div class="trades-wrap">
@@ -640,6 +665,11 @@
             'tool.drawing': '画线',
             'tool.display': '显示',
             'book.title': '订单簿',
+            'book.both': '双向',
+            'book.bids': '仅买',
+            'book.asks': '仅卖',
+            'book.step': '聚合精度',
+            'book.stepRaw': '原始',
             'book.levels': '{n} 档',
             'trades.title': '最新成交',
             'trades.moves': '市场异动',
@@ -723,6 +753,11 @@
             'tool.drawing': 'Drawing',
             'tool.display': 'Display',
             'book.title': 'Order Book',
+            'book.both': 'Both',
+            'book.bids': 'Bids',
+            'book.asks': 'Asks',
+            'book.step': 'Aggregation',
+            'book.stepRaw': 'Raw',
             'book.levels': '{n} levels',
             'trades.title': 'Market Trades',
             'trades.moves': 'Moves',
@@ -928,9 +963,9 @@
         }
 
         /** 显示精度：报价一律两位小数（终端的展示口径，与数据精度无关）。 */
-        static price(value) {
+        static price(value, precision = TerminalPage.PRICE_PRECISION) {
           if (value === null || value === undefined || !isFinite(value)) return '-';
-          return ICETradingChart.formatPrice(value, TerminalPage.PRICE_PRECISION);
+          return ICETradingChart.formatPrice(value, precision);
         }
 
         static pct(value) {
@@ -1009,6 +1044,8 @@
         orders = [];
         orderSeq = 0;
         book = null;
+        /** 盘口的聚合精度（0 = 原始档位）；面板头的下拉改它，转手给 `book.setPriceStep`。 */
+        bookStep = 0;
         bookData = { asks: [], bids: [] };
         /** 指针位置：`{ pane, x, y }`，`x`/`y` 是**那一块 pane 画布内**的坐标；不在图上时为 null。 */
         pointer = null;
@@ -1796,7 +1833,8 @@
             // 卖盘用跌色、买盘用涨色；价格与数量按合约盘面的口径格式化（千分位 + 三位小数）
             upColor: this.upColor,
             downColor: this.downColor,
-            priceFormat: (price) => TerminalPage.price(price),
+            // 聚合到粗步长时不再显示三位小数（数字冗余）；页面的格式化口径仍然只有这一处
+            priceFormat: (price) => TerminalPage.price(price, this.bookStep > 0 ? 0 : undefined),
             sizeFormat: (size) => size.toFixed(3),
             labels: this.bookLabels(),
             onPickPrice: (price) => {
@@ -1804,6 +1842,23 @@
               this.setHint(`已填入盘口价 ${TerminalPage.price(price)}`);
             },
           });
+          // 盘口面板头的小工具：三态视图走 setView、精度走 setPriceStep（都是组件公开 API）
+          const bookTools = document.querySelector('.book-tools');
+          if (bookTools) {
+            bookTools.addEventListener('click', (evt) => {
+              const btn = evt.target && evt.target.closest ? evt.target.closest('[data-book-view]') : null;
+              if (!btn || !this.book) return;
+              this.book.setView(btn.getAttribute('data-book-view'));
+              for (const item of bookTools.querySelectorAll('[data-book-view]')) item.classList.toggle('on', item === btn);
+            });
+          }
+          const stepSelect = document.getElementById('b-step');
+          if (stepSelect) {
+            stepSelect.addEventListener('change', () => {
+              this.bookStep = Number(stepSelect.value) || 0;
+              if (this.book) this.book.setPriceStep(this.bookStep);
+            });
+          }
           document.getElementById('b-levels').textContent = this.t('book.levels', { n: TerminalPage.LEVELS });
           this.renderDrawings();
           this.applyI18n();

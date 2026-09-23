@@ -1,4 +1,4 @@
-import { createOrderBook } from '../src/orderBook';
+import { aggregateLevels, createOrderBook } from '../src/orderBook';
 import type { OrderBook } from '../src/orderBook';
 
 function makeBook(levels: number, mid = 42000) {
@@ -87,6 +87,106 @@ describe('createOrderBook（盘口组件）', () => {
     book.update({ asks: [{ price: 101, size: 10 }], bids: [{ price: 99, size: 5 }] });
     const depth = rowsOf('ask')[0].querySelector('.ice-book-depth') as HTMLElement;
     expect(depth.style.width).toBe('0px');
+  });
+
+  it('聚合精度：买向下取整、卖向上取整，同格相加，顺序仍是「最优价在前」', () => {
+    const raw = {
+      asks: [
+        { price: 101.2, size: 1 },
+        { price: 101.8, size: 2 },
+        { price: 105.1, size: 3 },
+      ],
+      bids: [
+        { price: 99.6, size: 4 },
+        { price: 99.1, size: 5 },
+        { price: 96.9, size: 6 },
+      ],
+    };
+    // 步长 2：101.2 / 101.8 同格到 102（ceil），105.1 到 106
+    expect(aggregateLevels(raw.asks, 2, 'ask')).toEqual([
+      { price: 102, size: 3 },
+      { price: 106, size: 3 },
+    ]);
+    // 买盘 floor：99.6 / 99.1 同格到 98，96.9 到 96；输出从高到低
+    expect(aggregateLevels(raw.bids, 2, 'bid')).toEqual([
+      { price: 98, size: 9 },
+      { price: 96, size: 6 },
+    ]);
+  });
+
+  it('聚合精度：step <= 0 原样返回；空输入返回空', () => {
+    const levels = [{ price: 1.23, size: 1 }];
+    expect(aggregateLevels(levels, 0, 'bid')).toEqual(levels);
+    expect(aggregateLevels(levels, -1, 'ask')).toEqual(levels);
+    expect(aggregateLevels([], 2, 'ask')).toEqual([]);
+  });
+
+  it('三态视图：只切显隐，不重建结构', () => {
+    book = createOrderBook(host, { levels: 3 });
+    book.update(makeBook(3));
+    const askSide = host.querySelector('.ice-book-side[data-side="ask"]') as HTMLElement;
+    const bidSide = host.querySelector('.ice-book-side[data-side="bid"]') as HTMLElement;
+    const rowCount = host.querySelectorAll('.ice-book-row').length;
+
+    book.setView('bids');
+    expect(book.view()).toBe('bids');
+    expect(askSide.style.display).toBe('none');
+    expect(bidSide.style.display).toBe('');
+
+    book.setView('asks');
+    expect(askSide.style.display).toBe('');
+    expect(bidSide.style.display).toBe('none');
+
+    book.setView('both');
+    expect(askSide.style.display).toBe('');
+    expect(bidSide.style.display).toBe('');
+    // 结构一份没动（还是 2 × levels 行）
+    expect(host.querySelectorAll('.ice-book-row').length).toBe(rowCount);
+    // 非法值忽略
+    book.setView('nope' as never);
+    expect(book.view()).toBe('both');
+  });
+
+  it('组件里的聚合：档位与合计按步长重算，默认价格格式跟着步长走', () => {
+    book = createOrderBook(host, { levels: 3 });
+    book.update({
+      asks: [
+        { price: 101.2, size: 1 },
+        { price: 101.8, size: 2 },
+        { price: 105.1, size: 3 },
+        { price: 107.1, size: 4 },
+      ],
+      bids: [
+        { price: 99.6, size: 4 },
+        { price: 99.1, size: 5 },
+        { price: 96.9, size: 6 },
+        { price: 95.9, size: 7 },
+      ],
+    });
+    // 不聚合时按惯例两位小数
+    expect(priceOf(rowsOf('ask')[2])).toBe('101.20');
+
+    book.setPriceStep(2);
+    expect(book.priceStep()).toBe(2);
+    book.update({
+      asks: [
+        { price: 101.2, size: 1 },
+        { price: 101.8, size: 2 },
+        { price: 105.1, size: 3 },
+        { price: 107.1, size: 4 },
+      ],
+      bids: [
+        { price: 99.6, size: 4 },
+        { price: 99.1, size: 5 },
+        { price: 96.9, size: 6 },
+        { price: 95.9, size: 7 },
+      ],
+    });
+    // 最优卖价（贴着中间价那一行）聚合到 102，且步长 2 → 没有小数位
+    expect(priceOf(rowsOf('ask')[2])).toBe('102');
+    // 买盘最优聚合到 98，量 4+5 合并
+    expect(priceOf(rowsOf('bid')[0])).toBe('98');
+    expect(rowsOf('bid')[0].querySelector('.ice-book-sz')!.textContent).toBe('9.00');
   });
 
   it('点击某一档把价格与方向抛给应用', () => {

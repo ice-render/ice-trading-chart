@@ -29,6 +29,41 @@ export interface OrderBookData {
   bids: OrderBookLevel[];
 }
 
+/**
+ * 盘口视图：双向 / 仅买 / 仅卖。
+ *
+ * 主流合约盘的标配（窄面板里只看一侧很常见）。这里**只做呈现**：
+ * 三种视图用同一份结构，切换只是显隐，不重建 DOM —— 与组件「结构只建一次」的约定一致。
+ */
+export type OrderBookView = 'both' | 'bids' | 'asks';
+
+/**
+ * **按价格步长聚合档位**（纯函数，可单测）。
+ *
+ * 盘口聚合是交易盘的标配：原始档位可能细到 0.01，屏幕只放得下十档，
+ * 聚合到 1 / 10 才能看到更深的簿子。规则与主流盘口一致：
+ * - 价格落到「步长的网格」上：买单向下取整、卖单向上取整（都不穿过自己的价格）；
+ * - 同一格的量**相加**；
+ * - 输出顺序与输入约定一致（买盘从高到低、卖盘从低到高）。
+ *
+ * `step <= 0` 或非有限值时**原样返回**（等于不聚合）。聚合后同一格里的量可能为 0/负数，
+ * 这里不判合法性 —— 数据本来就该由行情源保证。
+ */
+export function aggregateLevels(levels: OrderBookLevel[], step: number, side: 'ask' | 'bid'): OrderBookLevel[] {
+  if (!Array.isArray(levels) || !levels.length) return [];
+  if (!isFinite(step) || step <= 0) return levels.slice();
+  const buckets = new Map<number, number>();
+  for (const level of levels) {
+    if (!level || !isFinite(level.price)) continue;
+    const snap = side === 'ask' ? Math.ceil(level.price / step) * step : Math.floor(level.price / step) * step;
+    // 浮点误差：0.1 的步长会算出 742.3000000000001 这种键，统一收到 1e-9
+    const key = Math.round(snap * 1e9) / 1e9;
+    buckets.set(key, (buckets.get(key) ?? 0) + (isFinite(level.size) ? level.size : 0));
+  }
+  const prices = [...buckets.keys()].sort(side === 'ask' ? (a, b) => a - b : (a, b) => b - a);
+  return prices.map((price) => ({ price, size: buckets.get(price) as number }));
+}
+
 export interface OrderBookOptions {
   /** 每侧的档数，默认 **10**。 */
   levels?: number;
@@ -57,6 +92,13 @@ export interface OrderBookOptions {
   theme?: Partial<TerminalTheme>;
   /** 是否画深度条，默认 true。 */
   showDepth?: boolean;
+  /** 初始视图（双向 / 仅买 / 仅卖），默认 `'both'`。 */
+  view?: OrderBookView;
+  /**
+   * 初始**价格聚合步长**（例如 `1` 表示把 742.31 / 742.58 并到同一格）。
+   * 默认 `0` = 不聚合，原样显示行情源给的档位。
+   */
+  priceStep?: number;
   /** 点击某一档的回调。 */
   onPickPrice?: (price: number, side: 'ask' | 'bid') => void;
 }
@@ -84,6 +126,24 @@ export interface OrderBook {
     messages?: Partial<TerminalMessages> | 'zh' | 'en',
     labels?: { price?: string; size?: string; total?: string }
   ): void;
+  /**
+   * 换视图（双向 / 仅买 / 仅卖）。
+   *
+   * 只动显隐，**不重建结构**；没变的话连下一次重画都省掉。
+   * 面板上的按钮由应用自己画（组件不管交互外壳），点了调这里即可。
+   */
+  setView(view: OrderBookView): void;
+  /** 当前视图。 */
+  view(): OrderBookView;
+  /**
+   * 换**价格聚合步长**（`<= 0` 表示不聚合，见 `aggregateLevels`）。
+   *
+   * 聚合在组件内做，应用照样推**原始**档位 —— 切精度不需要行情源配合，
+   * 也不存在「聚合后的数据被当成原始数据再聚合一次」的问题。
+   */
+  setPriceStep(step: number): void;
+  /** 当前聚合步长。 */
+  priceStep(): number;
   /** 当前中间价（上一次 update 的结果）。 */
   mid(): number | null;
   /** 当前价差（上一次 update 的结果）。 */
@@ -137,8 +197,17 @@ interface Row {
   total: HTMLElement;
 }
 
-function defaultPriceFormat(value: number): string {
-  return Number.isFinite(value) ? (Math.round(value * 100) / 100).toFixed(2) : '-';
+/** 步长对应的显示小数位（0.1 → 1 位、1 → 0 位；不聚合时沿用惯例的两位）。 */
+function decimalsForStep(step: number): number {
+  if (!isFinite(step) || step <= 0) return 2;
+  const digits = Math.ceil(-Math.log10(step));
+  return Math.max(0, Math.min(8, digits));
+}
+
+function defaultPriceFormat(value: number, decimals = 2): string {
+  if (!Number.isFinite(value)) return '-';
+  const factor = 10 ** decimals;
+  return (Math.round(value * factor) / factor).toFixed(decimals);
 }
 
 function defaultSizeFormat(value: number): string {
@@ -183,7 +252,13 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
   ensureStyle();
   const levels = Math.max(1, Math.round(options.levels === undefined ? 10 : options.levels));
   const showDepth = options.showDepth !== false;
-  const priceFormat = options.priceFormat || defaultPriceFormat;
+  let view: OrderBookView = options.view || 'both';
+  let priceStep = isFinite(Number(options.priceStep)) ? Math.max(0, Number(options.priceStep)) : 0;
+  /**
+   * 价格格式：应用给了就用应用的；没给就用**步长感知**的默认值
+   * （聚合到 1 还显示两位小数会看到 `742.00 / 743.00` —— 数字冗余，主流盘口都跟着步长走）。
+   */
+  const priceFormat = options.priceFormat || ((value: number) => defaultPriceFormat(value, decimalsForStep(priceStep)));
   const sizeFormat = options.sizeFormat || defaultSizeFormat;
   const pick = options.onPickPrice || (() => undefined);
 
@@ -247,6 +322,12 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
     for (const key of Object.keys(vars)) root.style.setProperty(key, vars[key]);
   };
   paintTheme();
+  /** 视图 → 两侧与中间价那行的显隐（结构不动，只切 display）。 */
+  const paintView = () => {
+    askSide.style.display = view === 'bids' ? 'none' : '';
+    bidSide.style.display = view === 'asks' ? 'none' : '';
+  };
+  paintView();
   let lastMid: number | null = null;
   let lastSpread: number | null = null;
   let signature = '';
@@ -285,8 +366,9 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
 
   const update = (data: OrderBookData, updateOptions: { mid?: number; midColor?: string } = {}) => {
     const mid = updateOptions.mid;
-    const asks = (data && data.asks ? data.asks : []).slice(0, levels);
-    const bids = (data && data.bids ? data.bids : []).slice(0, levels);
+    // 先按**步长**聚合再取前十档：应用永远推原始档位，切精度不必行情源配合
+    const asks = aggregateLevels(data && data.asks ? data.asks : [], priceStep, 'ask').slice(0, levels);
+    const bids = aggregateLevels(data && data.bids ? data.bids : [], priceStep, 'bid').slice(0, levels);
     const bestAsk = asks.length ? asks[0].price : null;
     const bestBid = bids.length ? bids[0].price : null;
     const resolvedMid = mid !== undefined ? mid : bestAsk !== null && bestBid !== null ? (bestAsk + bestBid) / 2 : bestAsk !== null ? bestAsk : bestBid;
@@ -300,6 +382,8 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
       upColor,
       downColor,
       updateOptions.midColor || '',
+      view,
+      String(priceStep),
       priceFormat(1),
     ].join('|');
     const changed = next !== signature;
@@ -348,6 +432,21 @@ export function createOrderBook(container: HTMLElement, options: OrderBookOption
     setPalette,
     setTheme,
     setMessages,
+    setView: (next: OrderBookView) => {
+      if (next !== 'both' && next !== 'bids' && next !== 'asks') return;
+      if (view === next) return;
+      view = next;
+      paintView();
+      signature = ''; // 视图变了要重画那一屏（两侧的档位可能都换过）
+    },
+    view: () => view,
+    setPriceStep: (step: number) => {
+      const next = isFinite(Number(step)) ? Math.max(0, Number(step)) : 0;
+      if (priceStep === next) return;
+      priceStep = next;
+      signature = ''; // 精度变了，档位与格式都要重算
+    },
+    priceStep: () => priceStep,
     mid: () => lastMid,
     spread: () => lastSpread,
     destroy: () => {
