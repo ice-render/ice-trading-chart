@@ -100,7 +100,15 @@ export function candleColumnsFor(series: InternalSeries, option: CandleFieldOpti
   const data = (series.option as any) ? (series.option as any).data : undefined;
   const key: object | null = raw ? raw : Array.isArray(data) ? data : null;
   const cached = key ? SERIES_CACHE.get(key) : undefined;
-  if (cached && cached.fields === fields && cached.series === series) {
+  /**
+   * 复用判定**不看 series 身份**：`series` 是归一化产物，每次 `applyOption` 都是新对象
+   * （实测：同一次推送里的两次取列之间它就换了）—— 拿身份当条件等于永远判不中，
+   * 于是每个 tick 都要重扫整个窗口（10 万根 **13ms/次**，一帧的大半）。
+   *
+   * 缓存真正的身份是**存储**（`series.raw`，按 series id 复用、稳定；普通系列则是数据数组），
+   * 「能不能复用」由 `reuseCandleColumns` 按存储自己的状态判（容量 / 起点 / 长度 / 首末类目）。
+   */
+  if (cached && cached.fields === fields) {
     const reused = reuseCandleColumns(cached, series, raw, data, option);
     if (reused) return cached.columns;
   }
@@ -150,21 +158,29 @@ function reuseCandleColumns(
   if (raw && raw.capacity > 0) {
     if (cached.capacity !== raw.capacity || cached.length !== raw.length) return false;
     const delta = (raw.start - cached.start + raw.capacity) % raw.capacity;
-    if (delta === 0) return true;
+    if (delta === 0) {
+      // 没滑动：唯一还可能变的是**正在形成的那一根**（同一根反复推 → 原地改值）
+      cached.lastKey = refreshTailRow(columns, series, option, cached.lastKey);
+      return true;
+    }
     if (delta >= raw.length) return false;
     shiftColumns(columns, series, delta, option);
     cached.start = raw.start;
+    cached.lastKey = columns.count ? String(series.xValueAt(columns.count - 1)) : '';
     cached.series = series;
     return true;
   }
   if (raw) {
     if (cached.length > raw.length) return false;
     if (cached.length === raw.length) {
+      // 长度没变：同样只可能是「正在形成的那一根」被改了（O(1) 复查）
+      cached.lastKey = refreshTailRow(columns, series, option, cached.lastKey);
       cached.series = series;
       return true;
     }
     appendColumns(columns, series, cached.length, raw.length, option);
     cached.length = raw.length;
+    cached.lastKey = columns.count ? String(series.xValueAt(columns.count - 1)) : '';
     cached.series = series;
     return true;
   }
@@ -222,6 +238,55 @@ function appendColumns(
     columns.validCount += 1;
   }
   columns.rangeStale = true;
+}
+
+/**
+ * 复查**最后一根**（O(1)）：返回它当前的类目 key。
+ *
+ * 为什么要有这一步：环形缓冲「没有滑动、长度也没变」的时候，唯一还可能变的就是
+ * **正在形成的那一根**（同一根反复推 → 原地改值，这是实时流的常态）。只看形状
+ * （容量 / 起点 / 长度）会把这种变化漏掉；而为了它重扫整个窗口（10 万根 ≈ 13ms）
+ * 明显不划算 —— 所以复查一根、变了就地改写。
+ */
+function refreshTailRow(
+  columns: CandleColumns,
+  series: InternalSeries,
+  option: CandleFieldOptions,
+  previousKey: string
+): string {
+  const last = columns.count - 1;
+  if (last < 0) return previousKey;
+  const key = String(series.xValueAt(last));
+  if (key !== previousKey) {
+    // 尾部换了另一根（类目也换了）：索引表跟着改一行
+    columns.indexOfX.delete(previousKey);
+    columns.indexOfX.set(key, last - columns.shiftOffset);
+  }
+  const point = series.pointAt(last);
+  const ohlc = point ? readOhlc(point.raw, option) : null;
+  const same = ohlc
+    ? columns.valid[last] === 1 &&
+      columns.open[last] === ohlc[0] &&
+      columns.close[last] === ohlc[1] &&
+      columns.low[last] === ohlc[2] &&
+      columns.high[last] === ohlc[3]
+    : columns.valid[last] === 0;
+  if (same) return key;
+  if (ohlc) {
+    columns.open[last] = ohlc[0];
+    columns.close[last] = ohlc[1];
+    columns.low[last] = ohlc[2];
+    columns.high[last] = ohlc[3];
+    if (!columns.valid[last]) {
+      columns.valid[last] = 1;
+      columns.validCount += 1;
+    }
+  } else if (columns.valid[last]) {
+    columns.valid[last] = 0;
+    columns.validCount -= 1;
+  }
+  columns.rangeStale = true;
+  return key;
 }
 
 /**

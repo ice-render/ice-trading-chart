@@ -48,6 +48,10 @@
       「视窗推进」是重排版 / 轴 / 重绘。<b>每 tick 的总时间由图表流水线主导</b>
       （数据一变就要重跑归一化 + 布局），两条路都要付 —— 环形的差别在<b>存储与内存</b>：
       1 万根这里省 ~1MB，100 万根省 ~60MB 与每 tick 的点物化。
+      <br />
+      第三个「帧」是<b>帧间隔的中位数</b>：它把页面的数据路径与图表的整帧一起量进去 ——
+      **本包自己的列存维护也在这一帧里**，窗口一大它就是真瓶颈（见 `AGENTS.md` 的账）。
+      用 `?window=300000` 看差别最直观。
     </p>
 
     <div class="card">
@@ -59,6 +63,7 @@
           <span class="stat">窗口 <b id="stat-window">0</b> 根</span>
           <span class="stat">数据路径 <b id="stat-tick">0</b> ms</span>
           <span class="stat">视窗推进 <b id="stat-view">0</b> ms</span>
+          <span class="stat">帧 <b id="stat-frame">0</b> ms</span>
         <span class="stat">堆 <b id="stat-heap">-</b> MB</span>
         <span class="stat">模式 <b id="stat-mode">环形</b></span>
       </div>
@@ -90,6 +95,9 @@
           this.chart = null;
           this.tickMs = 0;
           this.viewMs = 0;
+          /** 最近 60 帧的间隔（用来报中位数：单帧会被 GC / 别的标签页干扰）。 */
+          this.frameDeltas = [];
+          this.lastFrameAt = 0;
           this.lastPaintAt = 0;
           this.seed();
           this.mount();
@@ -221,7 +229,12 @@
         }
 
         loop() {
-          const frame = () => {
+          const frame = (now) => {
+            if (this.lastFrameAt) {
+              this.frameDeltas.push(now - this.lastFrameAt);
+              if (this.frameDeltas.length > 60) this.frameDeltas.shift();
+            }
+            this.lastFrameAt = now;
             this.step();
             this.onUpdate();
             requestAnimationFrame(frame);
@@ -252,9 +265,12 @@
           if (now - this.lastPaintAt < 250) return;
           this.lastPaintAt = now;
           const memory = performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null;
+          const deltas = this.frameDeltas.slice().sort((a, b) => a - b);
+          const median = deltas.length ? deltas[Math.floor(deltas.length / 2)] : 0;
           document.getElementById('stat-window').textContent = String(this.chart.norm.series[0].pointCount);
           document.getElementById('stat-tick').textContent = this.tickMs.toFixed(2);
           document.getElementById('stat-view').textContent = this.viewMs.toFixed(2);
+          document.getElementById('stat-frame').textContent = median.toFixed(1);
           document.getElementById('stat-heap').textContent = memory === null ? '-' : memory.toFixed(1);
         }
 

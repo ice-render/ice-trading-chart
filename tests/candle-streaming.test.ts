@@ -1,4 +1,5 @@
 import { createTradingChart } from '../src/index';
+import { buildCandleColumns } from '../src/series/candleColumns';
 import type { ICEChart } from '@damoqiongqiu/ice-chart';
 import type { TradingChartOption } from '../src/types';
 
@@ -111,5 +112,71 @@ describe('大窗口 K 线流（环形 + 列存）', () => {
     await c.render();
     expect(fillRect).toHaveBeenCalled();
     fillRect.mockRestore();
+  });
+
+  it('增量维护的结果 = 全量重建（滑动 + 追加 + 尾根改值之后逐根逐列一致）', async () => {
+    const c = await mount(rows(60));
+    // 先滑一段（每根都超过窗口 → 每根都要淘汰一根）
+    for (let i = 60; i < 100; i++) {
+      c.appendData('k', [{ x: `D${i}`, o: 42000, c: 42050, l: 41950, h: 42100, v: 100 }], { maxPoints: 40 });
+    }
+    await c.render();
+    // ⚠️ 追加之后要**重新取**归一化产物：`c.norm` 还是上一帧的那个（点数是老的）
+    const series: any = c.norm.series[0];
+    const component: any = c.seriesComponents[0];
+    // 再改正在形成的那一根（实时流的常态：同一根反复推）
+    const tail = series.pointAt(series.pointCount - 1).raw as any;
+    tail.c = 43999;
+    tail.h = 44100;
+    const columns = component.columns();
+
+    // 全量重建一份当基准：**逐列逐根**比，增量路径的任何错位都会露出来
+    const fresh = buildCandleColumns(
+      Array.from({ length: series.pointCount }, (_, i) => series.pointAt(i).raw)
+    );
+    expect(columns.count).toBe(fresh.count);
+    expect(columns.validCount).toBe(fresh.validCount);
+    for (const key of ['open', 'close', 'low', 'high', 'valid'] as const) {
+      expect(Array.from(columns[key] as any)).toEqual(Array.from(fresh[key] as any));
+    }
+    // 类目索引也得跟着滑动（存的是相对 shiftOffset 的下标）
+    for (let i = 0; i < columns.count; i++) {
+      expect(columns.indexOfX.get(String(series.xValueAt(i)))).toBe(i - columns.shiftOffset);
+    }
+    // 尾根改值必须真的进了列
+    expect(columns.close[columns.count - 1]).toBe(43999);
+  });
+
+  it('series 身份换了也照样复用列（归一化产物每次都是新对象，拿它当缓存条件等于永不判中）', async () => {
+    const c = await mount(rows(60));
+    const component: any = c.seriesComponents[0];
+    const first = component.columns();
+    const seriesBefore: any = c.norm.series[0];
+    // 同一份数据再来一次 applyOption：series / 组件都会重建，但**存储**是同一个
+    c.setOption(c.getOption(), { animate: false, preserveView: true });
+    await c.render();
+    // 归一化产物确实是新对象（否则这条用例是空的）
+    expect(c.norm.series[0]).not.toBe(seriesBefore);
+    const second = (c.seriesComponents[0] as any).columns();
+    expect(second).toBe(first);
+    expect(second.count).toBe(60);
+  });
+
+  it('同一根原地改值：复查尾部就够（环形形态也一样），列不重建但值跟上了', async () => {
+    const c = await mount(rows(60));
+    // 先切到环形（容量变了 → 列会重建一次），后面的原地改值才是环形那条路
+    c.appendData('k', [{ x: 'D60', o: 42000, c: 42050, l: 41950, h: 42100, v: 100 }], { maxPoints: 40 });
+    await c.render();
+    const component: any = c.seriesComponents[0];
+    const columns = component.columns();
+    const series: any = c.norm.series[0];
+    // 确认走的是环形存储（下面的原地改值走的才是环形态那条分支）
+    expect(series.raw.capacity).toBe(40);
+    const last = columns.count - 1;
+    const before = columns.close[last];
+    (series.pointAt(last).raw as any).c = before + 123;
+    const after = component.columns();
+    expect(after).toBe(columns); // 没有重建整个窗口
+    expect(after.close[last]).toBeCloseTo(before + 123, 6);
   });
 });
