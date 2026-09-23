@@ -11,6 +11,7 @@
  * - `./panes`      真副图（多实例 + 联动 + 横向对齐）
  * - `./drawing`    画线工具（SVG 覆盖层，按数据坐标持久化）
  * - `./orderBook`  盘口（买卖十档，独立组件）
+ * - `./toolbar`    图表工具条（周期/类型/指标/画线/显示，三层定制）
  * - `./volume`     成交量（同图第二轴压底）
  * - `./project`    画布内坐标投影（HTML 外壳对齐用）
  * - `./readout`    光标 → 一根 K 线的读数
@@ -107,6 +108,17 @@ export type { PaneSpec, PaneStack, PaneStackOptions } from './panes';
 export { createDrawingLayer, DRAWING_KINDS } from './drawing';
 export { createOrderBook } from './orderBook';
 export type { OrderBook, OrderBookData, OrderBookLevel, OrderBookOptions } from './orderBook';
+export { createChartToolbar, TOOLBAR_ICONS } from './toolbar';
+export type {
+  ChartToolbar,
+  ToolbarContext,
+  ToolbarCustomItem,
+  ToolbarHost,
+  ToolbarIndicator,
+  ToolbarItemName,
+  ToolbarItemSpec,
+  ToolbarOptions,
+} from './toolbar';
 export type {
   Drawing,
   DrawingKind,
