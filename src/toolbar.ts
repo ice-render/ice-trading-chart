@@ -44,6 +44,14 @@ export interface ToolbarCustomItem {
   title?: string;
   /** 点了做什么。`ctx` 是读写图表状态的正规入口，**不要直接摸 DOM**。 */
   onClick?: (ctx: ToolbarContext) => void;
+  /**
+   * 自定义面板：给就拿它当这个项的下拉内容（容器、定位、主题、点外部关闭都由库负责），
+   * **每次打开时调用**，所以应用可以按当前状态现建 —— 参数输入框、语言/主题这类
+   * 「要放控件、不是简单开关」的项就走这条，不必自己搭一个浮层。
+   *
+   * 给了 `menu` 就不再触发 `onClick`（触发器只负责开关面板）。
+   */
+  menu?: (ctx: ToolbarContext) => HTMLElement;
   /** 是否高亮/带角标（例如"有未读预警"）。每次 `update()` 会重算。 */
   active?: (ctx: ToolbarContext) => boolean;
 }
@@ -357,7 +365,8 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
       button.type = 'button';
       button.className = 'ice-toolbar-btn';
       const built: BuiltItem = { id, root: root_, button, panel: null, spec };
-      const isMenu = !custom; // 内置项都带下拉面板；自定义项由应用自己决定交互
+      // 内置项都带下拉面板；自定义项给了 `menu` 也带（容器/定位/关闭时机由库统一负责）
+      const isMenu = !custom || !!custom.menu;
       const svg = custom ? custom.icon : iconMarkup(iconOf(id));
       const label = custom ? custom.label || '' : captionOf(id);
       button.innerHTML =
@@ -374,6 +383,16 @@ export function createChartToolbar(options: ToolbarOptions = {}): ChartToolbar {
       button.addEventListener('click', (evt) => {
         evt.stopPropagation();
         if (custom) {
+          if (custom.menu) {
+            const next = openPanelId !== id;
+            if (next && built.panel) {
+              const content = custom.menu(context());
+              built.panel.innerHTML = '';
+              if (content) built.panel.appendChild(content);
+            }
+            togglePanel(id, next);
+            return;
+          }
           if (custom.onClick) custom.onClick(context());
           return;
         }

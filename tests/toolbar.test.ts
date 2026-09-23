@@ -109,6 +109,35 @@ describe('图表工具条（toolbar）', () => {
     ]);
   });
 
+  it('第 2 层进阶：自定义面板（menu）—— 容器/定位/关闭由库负责，内容归应用', () => {
+    let built = 0;
+    mount({
+      items: [
+        {
+          id: 'lang',
+          label: '语言',
+          menu: () => {
+            built += 1;
+            const box = document.createElement('div');
+            box.className = 'my-lang';
+            box.innerHTML = '<button type="button" data-lang="en">EN</button>';
+            return box;
+          },
+        },
+      ],
+    });
+    btnOf('lang').click();
+    const panel = panelOf('lang');
+    expect(panel.hidden).toBe(false);
+    expect(panel.querySelector('.my-lang')).not.toBeNull();
+    expect(built).toBe(1);
+    // 再点触发器 = 收起；再点开 = 重新调一次 menu（应用可以按当前状态现建）
+    btnOf('lang').click();
+    expect(panel.hidden).toBe(true);
+    btnOf('lang').click();
+    expect(built).toBe(2);
+  });
+
   it('第 3 层：render 整条替换（element / update 都被用上）', () => {
     const element = document.createElement('div');
     element.className = 'my-bar';
