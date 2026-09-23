@@ -260,6 +260,13 @@
       .trades th { color: var(--muted); font: 11px/1.6 var(--mono); font-weight: 400; text-align: right; padding: 2px 0; }
       .trades th:first-child, .trades td:first-child { text-align: left; }
       .trades td { font: 11px/1.55 var(--mono); padding: 1px 0; color: var(--dim); text-align: right; white-space: nowrap; }
+      /* 大单强调：量到「当前窗口内中位数的两倍」以上就加粗 + 量列淡底。
+         用**相对**口径而不是写死绝对值 —— 不同品种的量级差好几个数量级（SYN 与 BTC），
+         写死阈值必然在另一头失效。 */
+      .trades tr.big td { font-weight: 600; color: var(--text); }
+      .trades tr.big td.up { color: var(--up); }
+      .trades tr.big td.down { color: var(--down); }
+      .trades tr.big td:nth-child(2) { background: rgba(255, 255, 255, 0.06); }
 
       /* 下单面板 */
       .order-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
@@ -963,6 +970,18 @@
         }
 
         /** 显示精度：报价一律两位小数（终端的展示口径，与数据精度无关）。 */
+        /**
+         * 合成一笔成交的量：**多数小单 + 偶发大单**（重尾）。
+         *
+         * 为什么不用均匀分布：真实成交流本来就是这样，而均匀分布还有个副作用 ——
+         * 「大单强调」按窗口内中位数判定，均匀分布下永远没有大单，功能等于没接。
+         */
+        static tradeSize() {
+          const base = 0.002 + Math.random() * 0.25;
+          const spike = Math.random() < 0.12 ? 0.4 + Math.random() * 1.6 : 0;
+          return TerminalPage.round2(base + spike);
+        }
+
         static price(value, precision = TerminalPage.PRICE_PRECISION) {
           if (value === null || value === undefined || !isFinite(value)) return '-';
           return ICETradingChart.formatPrice(value, precision);
@@ -2955,7 +2974,7 @@
               for (let i = count - 1; i >= 0; i -= 1) {
                 page.market.pushTrade({
                   price: TerminalPage.round2(page.price * (1 + (Math.random() - 0.5) * 0.0004)),
-                  size: TerminalPage.round2(0.002 + Math.random() * 0.6),
+                  size: TerminalPage.tradeSize(),
                   at: TerminalPage.clock(now - i * 1000),
                   up: Math.random() > 0.5,
                 });
@@ -3698,7 +3717,7 @@
           this.market.pushDepth();
           this.market.pushTrade({
             price: TerminalPage.round2(next),
-            size: TerminalPage.round2(0.002 + Math.random() * 0.6),
+            size: TerminalPage.tradeSize(),
             at: TerminalPage.clock(Date.now()),
             up: Math.random() > 0.5,
           });
@@ -4249,13 +4268,21 @@
           const signature = this.trades.map((trade) => `${trade.price}:${trade.size}:${trade.at}`).join('|');
           if (signature === this.tradesSig) return;
           this.tradesSig = signature;
-          body.innerHTML = this.trades
-            .slice(-14)
-            .reverse()
-            .map(
-              (trade) =>
-                `<tr><td class="${trade.up ? 'up' : 'down'}">${TerminalPage.price(trade.price)}</td><td>${trade.size.toFixed(3)}</td><td>${trade.at}</td></tr>`
-            )
+          const rows = this.trades.slice(-14).reverse();
+          // 大单阈值 = 当前窗口量中位数的两倍（相对口径：换品种不必改配置）
+          const sizes = rows
+            .map((trade) => trade.size)
+            .filter((value) => isFinite(value))
+            .sort((a, b) => a - b);
+          const big = sizes.length ? sizes[Math.floor(sizes.length / 2)] * 2 : Infinity;
+          body.innerHTML = rows
+            .map((trade) => {
+              const large = trade.size >= big ? ' class="big"' : '';
+              return (
+                `<tr${large}><td class="${trade.up ? 'up' : 'down'}">${TerminalPage.price(trade.price)}</td>` +
+                `<td>${trade.size.toFixed(3)}</td><td>${trade.at}</td></tr>`
+              );
+            })
             .join('');
         }
 
