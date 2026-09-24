@@ -12,6 +12,14 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
+  /**
+   * **串行跑**（默认是 CPU 数的一半）。这一套 e2e 全是「量行为」的时序断言
+   * （拖拽 → 等 250ms → 读几何），两个重页面并行时互相抢 CPU，实测会出现
+   * 「同一个用例单独跑 3/3 绿、整跑偶尔红」的假红（2026-09-24 遇到 5 次）。
+   * 串行只慢十几秒，换一个可信的门禁值得 —— 上游 AGENTS 里那条
+   * 「audit 不是稳定门禁」的教训是同一回事。
+   */
+  workers: 1,
   reporter: [['list']],
   webServer: {
     command: 'npx http-server . -p 8102 -c-1 --silent',

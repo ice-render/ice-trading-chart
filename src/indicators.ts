@@ -222,6 +222,27 @@ export interface OverlaySpec {
   messages?: Partial<TerminalMessages> | 'zh' | 'en';
 }
 
+/** 派生系列自动开 `virtual` 的最小点数（小图保持原样：`getOption()` 里照旧带着 data）。 */
+const DERIVED_VIRTUAL_MIN = 4096;
+
+/**
+ * 大系列 + **类目 x** 时，给派生系列开 `virtual`（引擎的**惰性原始点**）。
+ *
+ * 为什么只在这条路上开：
+ * - 类目 x（时间字符串）走惰性原始点 —— 原始数据**仍按引用保留**，省掉的是
+ *   「每点一个 `DataPoint`」与逐帧的像素缓存 / LTTB（百万点的派生折线实测占整帧大头）；
+ *   `getOption()` 与提示框照旧拿得到 `data`。
+ * - 数值 x 的虚拟系列走**数值列**，引擎会把 `data` 从 option 里摘掉（换内存）。
+ *   那是「用户显式要求」的语义，不在这里替他决定 —— 要省内存的应用自己写 `virtual: true`。
+ */
+function derivedVirtual(candles: TradingSeriesOption | undefined, count: number): true | undefined {
+  if (!candles || !Array.isArray(candles.data) || count <= DERIVED_VIRTUAL_MIN) return undefined;
+  const field = candles.xField || 'x';
+  const sample: any = candles.data[0];
+  const x = sample && typeof sample === 'object' && !Array.isArray(sample) ? sample[field] : undefined;
+  return typeof x === 'string' ? true : undefined;
+}
+
 /**
  * 主图叠加系列（均线 / 布林带）。
  *
@@ -239,6 +260,7 @@ export function createOverlaySeries(
   const width = spec.lineWidth === undefined ? 1.2 : spec.lineWidth;
 
   const push = (id: string, name: string, values: Series, color: string, dashed = false) => {
+    const data = seriesData(candles, values) as any[];
     out.push({
       id,
       type: 'line',
@@ -248,7 +270,9 @@ export function createOverlaySeries(
       lineWidth: width,
       color,
       lineDash: dashed ? [4, 3] : undefined,
-      data: seriesData(candles, values) as any[],
+      // 大系列 + 类目 x：走惰性原始点（不建「每点一个 DataPoint」、绘制按像素列抽样）
+      virtual: derivedVirtual(candles, data.length),
+      data,
     } as SeriesOption);
   };
 
@@ -295,6 +319,8 @@ export function createMacdPaneOption(
     const value = result.histogram[i];
     return { x, y: value, color: (value ?? 0) >= 0 ? up : down };
   });
+  // 百万点的柱 / 线：与叠加系列同一条口径（类目 x + 大系列 → 惰性原始点）
+  const virtual = derivedVirtual(candles, histogram.length);
   return {
     series: [
       {
@@ -302,6 +328,7 @@ export function createMacdPaneOption(
         type: 'bar',
         name: messages.indicators.macd,
         barWidth: 0.42,
+        virtual,
         data: histogram as any[],
       } as SeriesOption,
       {
@@ -310,6 +337,7 @@ export function createMacdPaneOption(
         name: messages.indicators.dif,
         lineWidth: 1.1,
         color: '#f5a524',
+        virtual,
         data: seriesData(candles, result.dif) as any[],
       } as SeriesOption,
       {
@@ -318,6 +346,7 @@ export function createMacdPaneOption(
         name: messages.indicators.dea,
         lineWidth: 1.1,
         color: '#3b82f6',
+        virtual,
         data: seriesData(candles, result.dea) as any[],
       } as SeriesOption,
     ],
@@ -336,6 +365,7 @@ export function createRsiPaneOption(
 ): { series: SeriesOption[]; annotation: { lines: Array<Record<string, unknown>> } } {
   const closes = closeSeries(candles);
   const values = rsi(closes, spec.period || 14);
+  const data = seriesData(candles, values) as any[];
   const guides = [70, 50, 30].map((value) => ({
     axis: 'y',
     value,
@@ -351,7 +381,8 @@ export function createRsiPaneOption(
         name: resolveTerminalMessages(spec.messages).indicators.rsi(spec.period || 14),
         lineWidth: 1.3,
         color: spec.color || '#a78bfa',
-        data: seriesData(candles, values) as any[],
+        virtual: derivedVirtual(candles, data.length),
+        data,
       } as SeriesOption,
     ],
     annotation: { lines: guides },
