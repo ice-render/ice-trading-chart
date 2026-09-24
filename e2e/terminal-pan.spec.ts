@@ -629,12 +629,20 @@ test.describe('K 线终端示例页', () => {
     expect(await cursor(), '绘图区悬停不给 ns-resize').toBe('');
   });
 
-  test('刻度密度：价格轴一档落在 19~47px（默认 5 档那会儿是 57~71px），缩放后仍然稳', async ({ page }) => {
+  /**
+   * 刻度密度的带子是 **17~47px**（不是 19~47）：
+   * 目标一档是「主题字号 × 2.5」= 27.5px，而引擎的步长梯子只有 1/2/5 ——
+   * 取「离目标最近」那一档时最坏会差 √2（27.5/√2 ≈ 19.4）；再叠上引擎对数据域的取整，
+   * 实际间距还能再低 ~10%（**实测命中过 17.70px**，随机演示数据下每几十次跑出现一次）。
+   * 所以门禁按「不挤成一团」定在 16px：真正坏掉的密度（比如退回固定 5 档）是 57~71px，
+   * 或者干脆挤到 10px 以下，两者都逃不掉。
+   */
+  test('刻度密度：价格轴一档落在 17~47px（默认 5 档那会儿是 57~71px），缩放后仍然稳', async ({ page }) => {
     await page.click('#btn-toggle');
     await page.waitForTimeout(200);
     const before = await tickState(page);
     expect(before.count, '默认就要给足档数（不是 5 档）').toBeGreaterThanOrEqual(8);
-    expect(before.spacing, '一档至少 19px').toBeGreaterThan(18);
+    expect(before.spacing, '一档至少 16px（目标 27.5，梯子最坏 √2、再叠域取整）').toBeGreaterThan(16);
     expect(before.spacing, '一档最多 47px（1/2/5 梯子的粒度）').toBeLessThan(48);
     expect(before.aligned).toBe(true);
 
@@ -642,7 +650,7 @@ test.describe('K 线终端示例页', () => {
     await dragRulerUp(page, 'price', 200);
     const zoomed = await tickState(page);
     expect(zoomed.count, '窄窗口也要有好几档').toBeGreaterThanOrEqual(4);
-    expect(zoomed.spacing, '缩到再细也不许挤成一团').toBeGreaterThan(18);
+    expect(zoomed.spacing, '缩到再细也不许挤成一团').toBeGreaterThan(16);
     expect(zoomed.spacing, '缩到再细也不许稀下去').toBeLessThan(48);
     expect(zoomed.step, '放大之后刻度只会更细，不会更粗').toBeLessThanOrEqual(before.step);
     expect(zoomed.labels).not.toEqual(before.labels);
@@ -653,7 +661,7 @@ test.describe('K 线终端示例页', () => {
     await dblclickRuler(page, 'price');
     const home = await tickState(page);
     expect(Math.abs(home.step - before.step)).toBeLessThanOrEqual(before.step);
-    expect(home.spacing).toBeGreaterThan(18);
+    expect(home.spacing).toBeGreaterThan(16);
     expect(home.spacing).toBeLessThan(48);
     expect(home.aligned).toBe(true);
 
