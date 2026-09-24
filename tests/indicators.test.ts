@@ -159,14 +159,19 @@ describe('closeSeries / seriesData', () => {
     expect(rows.map((row: any) => row.y)).toEqual([null, 1, null, 3]);
   });
 
-  it('默认去掉首尾 null（否则折线会把缺失当成 0 拉出竖直假线）', () => {
+  it('默认**不裁**首尾 null：类目表要与 K 线逐项对齐（上游已按断点抬笔，不再需要裁）', () => {
     const rows = seriesData(CANDLES, [null, 1, 3, null]);
-    expect(rows.map((row: any) => row.x)).toEqual(['D2', 'D3']);
-    expect(rows.map((row: any) => row.y)).toEqual([1, 3]);
+    expect(rows.map((row: any) => row.x)).toEqual(['D1', 'D2', 'D3', 'D4']);
+    expect(rows.map((row: any) => row.y)).toEqual([null, 1, 3, null]);
   });
 
-  it('整列 null 时输出空数组（不是一堆 y:null）', () => {
-    expect(seriesData(CANDLES, [null, null, null, null])).toEqual([]);
+  it('显式传 trim: true 时裁首尾 null（留给要自己拼数据的场景）', () => {
+    const rows = seriesData(CANDLES, [null, 1, 3, null], {}, { trim: true });
+    expect(rows.map((row: any) => row.x)).toEqual(['D2', 'D3']);
+  });
+
+  it('整列 null 时裁成了空数组（trim: true）', () => {
+    expect(seriesData(CANDLES, [null, null, null, null], {}, { trim: true })).toEqual([]);
   });
 
   it('空系列不炸', () => {
@@ -182,8 +187,11 @@ describe('createOverlaySeries（主图叠加）', () => {
     expect(series[0].type).toBe('line');
     expect(series[0].yAxisIndex).toBe(0);
     expect(series[0].name).toBe('MA3');
-    // MA3 的预热期被裁掉，数据从第一个有效点开始（D3）
-    expect(series[0].data.map((row: any) => row.x)).toEqual(['D3', 'D4']);
+    // 预热期保留成 null（不裁）：类目表与 K 线逐项对齐，断点由上游按 NaN 抬笔
+    expect(series[0].data.map((row: any) => row.x)).toEqual(['D1', 'D2', 'D3', 'D4']);
+    const ys = series[0].data.map((row: any) => row.y);
+    expect(ys.slice(0, 2)).toEqual([null, null]);          // 预热期保留成 null
+    expect(ys.slice(2).every((y: any) => typeof y === 'number')).toBe(true);
   });
 
   it('布林带出三条线（名字走文案目录，默认 BOLL(3) / + / -）', () => {

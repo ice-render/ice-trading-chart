@@ -185,7 +185,19 @@ export interface SeriesDataOptions {
   to?: number;
 }
 
-/** 把一条指标数列变成图表的 `line` 系列数据（带上与 K 线相同的 x）。 */
+/**
+ * 把一条指标数列变成图表的 `line` 系列数据（带上与 K 线相同的 x）。
+ *
+ * ⚠️ **默认不裁首尾的 `null`**（2026-09-24 改；原来默认裁）。两条理由：
+ * 1. **上游已经会按断点抬笔**：`computeEffective` 把 `y === null` 的像素写成 NaN，
+ *    折线在那儿断开（实测 `[null, 5, 6, null, 8]` 的 pts 里正好两个断点、没有假线）。
+ *    那条「null 被当成 0、拉出竖直假线」是**旧版上游**的行为，本包的规避已经过期。
+ * 2. **裁掉会让类目表错位**：指标有预热期（MA(25) 前 24 根是 null），裁掉之后这份派生
+ *    系列的类目表和 K 线**不再逐项相同** —— 类目轴只能走「多来源合并」那条慢路
+ *    （1M × 5 张表实测 ≈175ms/次归一化），而且窗口错位。
+ *
+ * 真需要裁（比如自己要拼数据）就显式传 `{ trim: true }`。
+ */
 export function seriesData(
   candles: TradingSeriesOption | undefined,
   values: Series,
@@ -193,7 +205,7 @@ export function seriesData(
   options: SeriesDataOptions = {}
 ) {
   const xs = xSeries(candles);
-  const trim = options.trim !== false;
+  const trim = options.trim === true;
   let from = 0;
   let to = xs.length - 1;
   if (trim) {
