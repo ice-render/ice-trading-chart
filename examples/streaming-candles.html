@@ -79,6 +79,15 @@
       class StreamingCandlesPage {
         /** 滚动窗口（根）：默认 1 万，可用 `?window=2000` 调（看成本随窗口怎么长）。 */
         static WINDOW = Number(new URLSearchParams(location.search).get('window')) || 10000;
+        /**
+         * 派生系列开关（**密度那件事的观测台**）：`?volume=1` 带量柱、`?ma=1` 带均线。
+         *
+         * 为什么放在这个页面上：远景（一屏几十万根）下真正吃资源的往往不是 K 线本身，
+         * 而是**派生出来的柱与线**（量柱是每根一个矩形、均线是每根一个点）。
+         * 打开它们才能量出「采样画法」省下的到底是多少（见 `AGENTS.md` 的密度一节）。
+         */
+        static WITH_VOLUME = new URLSearchParams(location.search).get('volume') === '1';
+        static WITH_MA = new URLSearchParams(location.search).get('ma') === '1';
         /** 价格轴用「最近多少根」的量程（真实终端也是这么做的：轴跟着一段窗口走）。 */
         static AXIS_WINDOW = 400;
         /** 每多少 tick 重钉一次价格轴。 */
@@ -150,6 +159,30 @@
 
         mount() {
           const t0 = performance.now();
+          const candle = {
+            id: 'k',
+            type: 'candlestick',
+            name: 'K 线',
+            // `virtual: true` 已是默认（列存），这里显式写出来当例子
+            virtual: true,
+            data: this.seedRows,
+          };
+          const series = [candle];
+          const axes = [{ name: '价格' }];
+          if (StreamingCandlesPage.WITH_VOLUME) {
+            // 与库里 `buildVolumeSeries` 同一个形态：柱子走惰性原始点（virtual），挂第二条隐藏轴
+            const volume = ICETradingChart.buildVolumeSeries(candle, {});
+            if (volume) {
+              series.push(volume);
+              axes.push({ show: false, nice: false, min: 0, max: 1400 });
+            }
+          }
+          if (StreamingCandlesPage.WITH_MA) {
+            // 均线：与库里 `createOverlaySeries` 同一个形态（普通折线，引擎自己按 LTTB 抽稀）
+            for (const line of ICETradingChart.createOverlaySeries(candle, { ma: [7, 25], emaPeriods: [12, 26] })) {
+              series.push(line);
+            }
+          }
           this.chart = ICETradingChart.createTradingChart(
             'chart',
             {
@@ -157,17 +190,8 @@
               animation: { enabled: false },
               tooltip: { trigger: 'item' },
               xAxis: { type: 'category' },
-              yAxis: { name: '价格' },
-              series: [
-                {
-                  id: 'k',
-                  type: 'candlestick',
-                  name: 'K 线',
-                  // `virtual: true` 已是默认（列存），这里显式写出来当例子
-                  virtual: true,
-                  data: this.seedRows,
-                },
-              ],
+              yAxis: axes,
+              series,
             },
             {
               // 窗口式数据源：data 会被列存接管，量程由应用给（含影线）
@@ -214,6 +238,16 @@
           const t0 = performance.now();
           if (this.mode === 'ring') {
             this.chart.appendData('k', [row], { maxPoints: StreamingCandlesPage.WINDOW });
+            /**
+             * 派生系列（量柱）**也要跟着推**：真实应用就是这么做的。
+             * 这也是「同一批类目表」能不能被上游那条捷径认出来的前提 ——
+             * 只推主系列的话，量柱那份表会停在种子数据上（实测第一项就差 109 根）。
+             */
+            if (StreamingCandlesPage.WITH_VOLUME) {
+              this.chart.appendData('k__volume', [{ x: row.x, value: row.v, color: '#848e9c' }], {
+                maxPoints: StreamingCandlesPage.WINDOW,
+              });
+            }
           } else {
             this.windowRows.push(row);
             if (this.windowRows.length > StreamingCandlesPage.WINDOW) this.windowRows.shift();

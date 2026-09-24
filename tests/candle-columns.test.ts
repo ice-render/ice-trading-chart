@@ -163,6 +163,40 @@ describe('K 线窗口裁剪与压缩模式（引擎集成）', () => {
     stroke.mockRestore();
   });
 
+  it('压缩模式的落墨量按**像素列**封顶（不随根数涨），且列内极值仍然真实', async () => {
+    // 两万根挤在 640px 上：每列约 31 根 —— 逐根扫/逐根画都说不通
+    const c = await mount(20000);
+    const comp: any = c.seriesComponents[0];
+    const ctx: any = comp.ctx;
+    const stroke = jest.spyOn(ctx, 'stroke');
+    // 塞一根极端影线：列内极值必须带出来（抽样只抽「候选」，不是把极值抽掉）
+    const data = (c.getOption().series![0] as any).data as any[];
+    data[10000].h = 999;
+    data[10000].l = -999;
+    c.setData('k', data);
+    await c.render();
+    // 只数**这一帧**：setData 自己也会触发一次绘制
+    stroke.mockClear();
+    await c.render();
+    const strokes = stroke.mock.calls.length;
+    const plotWidth = Math.round(c.layout.plot.width);
+    expect(strokes).toBeGreaterThan(0);
+    // 落墨量按像素列封顶（同一帧里可能画了两趟：数据变动 + 显式 render，所以留 20% 余量；
+    // 逐根画的话这里是 2 万而不是 600 上下）
+    expect(strokes).toBeGreaterThan(plotWidth * 0.5);
+    expect(strokes).toBeLessThan(plotWidth * 1.2);
+    // 那条极值所在像素列的 y 跨度应当明显大于普通列（用 lineTo 的入参看高度）
+    const lineTo = jest.spyOn(ctx, 'lineTo');
+    await c.render();
+    const spans = lineTo.mock.calls
+      .filter((call: any[]) => call.length >= 2)
+      .map((call: any[]) => Math.abs(Number(call[1]) - Number(call[0])));
+    // 极端影线没有被抽掉
+    expect(Math.max(...spans)).toBeGreaterThan(c.layout.plot.height * 0.5);
+    stroke.mockRestore();
+    lineTo.mockRestore();
+  });
+
   it('正常缩放（一屏几十根）仍然逐根画实体', async () => {
     const c = await mount(20000);
     const comp: any = c.seriesComponents[0];

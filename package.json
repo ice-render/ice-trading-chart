@@ -1,6 +1,6 @@
 {
   "name": "ice-trading-chart",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "MIT",
   "author": "大漠穷秋",
   "description": "基于 ice-chart 的金融交易图表库：K 线、影线命中、OHLC 提示框、价格轴量程。",
@@ -54,7 +54,7 @@
     "@babel/core": "7.28.5",
     "@babel/preset-env": "7.28.5",
     "@babel/preset-typescript": "7.28.5",
-    "@damoqiongqiu/ice-chart": "^0.30.5",
+    "@damoqiongqiu/ice-chart": "^0.30.6",
     "@playwright/test": "^1.63.0",
     "@rollup/plugin-babel": "6.1.0",
     "@rollup/plugin-commonjs": "28.0.1",
