@@ -237,17 +237,25 @@
         push(row) {
           const t0 = performance.now();
           if (this.mode === 'ring') {
-            this.chart.appendData('k', [row], { maxPoints: StreamingCandlesPage.WINDOW });
             /**
-             * 派生系列（量柱）**也要跟着推**：真实应用就是这么做的。
-             * 这也是「同一批类目表」能不能被上游那条捷径认出来的前提 ——
-             * 只推主系列的话，量柱那份表会停在种子数据上（实测第一项就差 109 根）。
+             * 一次推送里的多次追加包进 `chart.batch()`（内核 0.30.11 起）：批内只改数据 + 记账，
+             * 出批跑**一次**流水线。两条收益：① 每 tick 的流水线从「每条系列一条」压成一条；
+             * ② 流水线看到的是两边都更新完的**一致状态** —— 类目域那套「逐项同一」的增量
+             * 在中间态里是对不上的（第一条已经滑过去、第二条还没）。
              */
-            if (StreamingCandlesPage.WITH_VOLUME) {
-              this.chart.appendData('k__volume', [{ x: row.x, value: row.v, color: '#848e9c' }], {
-                maxPoints: StreamingCandlesPage.WINDOW,
-              });
-            }
+            this.chart.batch(() => {
+              this.chart.appendData('k', [row], { maxPoints: StreamingCandlesPage.WINDOW });
+              /**
+               * 派生系列（量柱）**也要跟着推**：真实应用就是这么做的。
+               * 这也是「同一批类目表」能不能被上游那条捷径认出来的前提 ——
+               * 只推主系列的话，量柱那份表会停在种子数据上（实测第一项就差 109 根）。
+               */
+              if (StreamingCandlesPage.WITH_VOLUME) {
+                this.chart.appendData('k__volume', [{ x: row.x, value: row.v, color: '#848e9c' }], {
+                  maxPoints: StreamingCandlesPage.WINDOW,
+                });
+              }
+            });
           } else {
             this.windowRows.push(row);
             if (this.windowRows.length > StreamingCandlesPage.WINDOW) this.windowRows.shift();
