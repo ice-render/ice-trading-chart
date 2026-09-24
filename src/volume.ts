@@ -122,6 +122,11 @@ export function buildVolumeSeries(
      * 1 万根省 ~0.6MB、100 万根省 ~60MB。原始数据仍在（提示框与量程照旧）。
      */
     virtual: true,
+    /**
+     * 类目轴：量柱的 x 就是 K 线的 x（逐项同序同长）→ 声明出去，
+     * 轴不必把这张百万行的表再合并一遍（引擎的 `xFrom`）。
+     */
+    xFrom: typeof source.id === 'string' && source.id ? source.id : undefined,
     data: data as any[],
   } as SeriesOption;
 }

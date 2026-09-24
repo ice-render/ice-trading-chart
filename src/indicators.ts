@@ -247,6 +247,19 @@ const DERIVED_VIRTUAL_MIN = 4096;
  * - 数值 x 的虚拟系列走**数值列**，引擎会把 `data` 从 option 里摘掉（换内存）。
  *   那是「用户显式要求」的语义，不在这里替他决定 —— 要省内存的应用自己写 `virtual: true`。
  */
+/**
+ * 派生系列的「**我的 x 与主系列逐项相同**」声明（引擎的 `xFrom`）。
+ *
+ * 两个前提，缺一不声明：主系列有 `id`、且两者**点数相同**（本包的派生数据都是从主系列
+ * 逐根抄下来的，所以成立）。引擎借此跳过类目合并 —— 百万点规模下那是每帧最大的一笔
+ * （1M × N 次 `String()` + 哈希）；写错了（点数不同）引擎会自动忽略这条声明，只会慢、不会错。
+ */
+function xFromOf(candles: TradingSeriesOption | undefined, count: number): string | undefined {
+  if (!candles || typeof candles.id !== 'string' || !candles.id) return undefined;
+  const sourceCount = Array.isArray(candles.data) ? candles.data.length : 0;
+  return sourceCount === count ? candles.id : undefined;
+}
+
 function derivedVirtual(candles: TradingSeriesOption | undefined, count: number): true | undefined {
   if (!candles || !Array.isArray(candles.data) || count <= DERIVED_VIRTUAL_MIN) return undefined;
   const field = candles.xField || 'x';
@@ -284,6 +297,8 @@ export function createOverlaySeries(
       lineDash: dashed ? [4, 3] : undefined,
       // 大系列 + 类目 x：走惰性原始点（不建「每点一个 DataPoint」、绘制按像素列抽样）
       virtual: derivedVirtual(candles, data.length),
+      // 类目轴：x 抄自主系列 → 声明出去，轴不必把这张表再合并一遍
+      xFrom: xFromOf(candles, data.length),
       data,
     } as SeriesOption);
   };
@@ -333,6 +348,7 @@ export function createMacdPaneOption(
   });
   // 百万点的柱 / 线：与叠加系列同一条口径（类目 x + 大系列 → 惰性原始点）
   const virtual = derivedVirtual(candles, histogram.length);
+  const xFrom = xFromOf(candles, histogram.length);
   return {
     series: [
       {
@@ -341,6 +357,7 @@ export function createMacdPaneOption(
         name: messages.indicators.macd,
         barWidth: 0.42,
         virtual,
+        xFrom,
         data: histogram as any[],
       } as SeriesOption,
       {
@@ -350,6 +367,7 @@ export function createMacdPaneOption(
         lineWidth: 1.1,
         color: '#f5a524',
         virtual,
+        xFrom,
         data: seriesData(candles, result.dif) as any[],
       } as SeriesOption,
       {
@@ -359,6 +377,7 @@ export function createMacdPaneOption(
         lineWidth: 1.1,
         color: '#3b82f6',
         virtual,
+        xFrom,
         data: seriesData(candles, result.dea) as any[],
       } as SeriesOption,
     ],
@@ -394,6 +413,7 @@ export function createRsiPaneOption(
         lineWidth: 1.3,
         color: spec.color || '#a78bfa',
         virtual: derivedVirtual(candles, data.length),
+        xFrom: xFromOf(candles, data.length),
         data,
       } as SeriesOption,
     ],

@@ -194,6 +194,16 @@ describe('createOverlaySeries（主图叠加）', () => {
     expect(ys.slice(2).every((y: any) => typeof y === 'number')).toBe(true);
   });
 
+  it('派生系列声明 xFrom（类目轴不必把它们的表再合并一遍）', () => {
+    const series = createOverlaySeries(CANDLES, { ma: [3] }) as any[];
+    expect(series[0].xFrom).toBe('k');
+    // 「点数对不上就不声明」那条在引擎侧有专门用例（normalize.test.ts 的 xFrom 一节）
+    const macd = createMacdPaneOption(CANDLES as any) as any;
+    expect(macd.series.every((item: any) => item.xFrom === 'k')).toBe(true);
+    const rsi = createRsiPaneOption(CANDLES as any) as any;
+    expect(rsi.series[0].xFrom).toBe('k');
+  });
+
   it('布林带出三条线（名字走文案目录，默认 BOLL(3) / + / -）', () => {
     const series = createOverlaySeries(CANDLES, { boll: { period: 3 } }) as any[];
     expect(series.map((item) => item.name)).toEqual(['BOLL(3)', 'BOLL(3)+', 'BOLL(3)-']);
